@@ -13,6 +13,7 @@ import {
 } from '../lib/gateway.js'
 import { guardRequest, hostNameOf, parseTrustedHosts } from '../lib/guard.js'
 import {
+  ANCHORS,
   applyMigrations,
   loadPrefs,
   mergePrefs,
@@ -290,6 +291,15 @@ test('normalizePrefs clamps values and keeps an explicit empty selection', () =>
   assert.equal(prefs.anchor, 'header', 'an unknown anchor falls back to the default')
 
   assert.deepEqual(normalizePrefs({}, defaults), defaults, 'an empty object keeps the defaults')
+
+  for (const anchor of ANCHORS) {
+    assert.equal(normalizePrefs({ anchor }, defaults).anchor, anchor, `the ${anchor} position is accepted`)
+  }
+  assert.deepEqual(
+    ANCHORS,
+    ['header', 'bottom-left', 'bottom-right', 'float'],
+    'every anchored corner and the free float stay configurable',
+  )
 })
 
 test('sanitizePatch keeps only known keys with acceptable types', () => {
@@ -321,6 +331,7 @@ test('sanitizePatch keeps only known keys with acceptable types', () => {
 
   assert.deepEqual(sanitizePatch({ snap: 'yes', cards: 5, opacity: {}, panels: 3 }), {}, 'wrong types are dropped')
   assert.deepEqual(sanitizePatch({ anchor: 'diagonal' }), {}, 'an unknown position is dropped')
+  assert.deepEqual(sanitizePatch({ anchor: 'bottom-left' }), { anchor: 'bottom-left' }, 'a corner position passes')
 })
 
 test('savePrefs writes atomically and loadPrefs tolerates a broken file', async () => {

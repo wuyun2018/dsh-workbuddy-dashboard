@@ -64,6 +64,31 @@
     return Math.min(max, Math.max(min, number))
   }
 
+  // Where the panel rests. `header` sits inside the conversation header strip,
+  // `bottom-left` / `bottom-right` in the corners of the conversation column, and
+  // `float` is the classic draggable window. The three anchored modes share the
+  // same compact card row and the same click-to-expand behaviour.
+  var ANCHOR_MODES = ['header', 'bottom-left', 'bottom-right', 'float']
+
+  function normalizeAnchor(value, fallback) {
+    return ANCHOR_MODES.indexOf(value) === -1 ? fallback : value
+  }
+
+  // Settings copy for the position picker, in display order.
+  var ANCHOR_CHOICES = [
+    { value: 'header', label: '顶部横条（居中）', title: '停在对话框顶部', hint: '默认只显示卡片，点卡片展开标题与更新时间。' },
+    { value: 'bottom-left', label: '左下角', title: '停在对话窗口左下角', hint: '贴着对话窗口左下角，点卡片向上展开。' },
+    { value: 'bottom-right', label: '右下角', title: '停在对话窗口右下角', hint: '贴着对话窗口右下角，点卡片向上展开。' },
+    { value: 'float', label: '自由浮动（可拖动）', title: '可拖动的浮窗', hint: '拖到屏幕边缘会自动贴靠。' }
+  ]
+
+  function anchorChoice(mode) {
+    for (var i = 0; i < ANCHOR_CHOICES.length; i += 1) {
+      if (ANCHOR_CHOICES[i].value === mode) return ANCHOR_CHOICES[i]
+    }
+    return ANCHOR_CHOICES[0]
+  }
+
   var state = {
     store: loadStore(),
     data: null,
@@ -83,7 +108,7 @@
       range: boot.range || 'today',
       snap: boot.snap !== false,
       snapDistance: clampNum(boot.snapDistance, 0, 80, 24),
-      anchor: boot.anchor === 'float' ? 'float' : 'header'
+      anchor: normalizeAnchor(boot.anchor, 'header')
     },
     catalog: { kpis: [], panels: [], ranges: RANGE_FALLBACK },
     dock: null
@@ -316,6 +341,9 @@
     '.wb-win.anchor-header.minimal .wb-kpi.wide{grid-column:auto}',
     '.wb-win.anchor-header .wb-head{cursor:default}',
     '.wb-win.anchor-header .wb-kpis{cursor:pointer}',
+    // Bottom corners: same compact row, but it grows upward instead of down.
+    '.wb-win.anchor-header.at-bottom{max-height:calc(100vh - 80px)}',
+    '.wb-win.anchor-header.at-bottom.minimal{box-shadow:0 -6px 18px rgba(0,0,0,0.26)}',
     '.wb-win.settings .wb-content{display:none}',
     '.wb-win.settings .wb-settings{display:block}',
     '.wb-head{display:flex;align-items:center;gap:6px;padding:9px 10px 8px;cursor:move;flex:0 0 auto;',
@@ -504,17 +532,17 @@
   }
 
   function applyGeometry() {
-    if (state.prefs.anchor === 'header') {
-      // The header strip owns the position: no dragging, no snapping, and the
+    if (isAnchored()) {
+      // An anchored mode owns the position: no dragging, no snapping, and the
       // compact/expanded switch replaces the old collapse.
       win.classList.remove('collapsed', 'is-snapped', 'is-dragging')
       btnCollapse.textContent = state.expanded ? '—' : '+'
-      applyHeaderGeometry()
+      applyAnchoredGeometry()
       win.style.display = state.open ? 'flex' : 'none'
       pill.classList.toggle('show', !state.open)
       return
     }
-    win.classList.remove('anchor-header', 'minimal')
+    win.classList.remove('anchor-header', 'minimal', 'at-bottom')
     win.style.maxWidth = ''
     var pos = state.store.pos
     if (pos && typeof pos.left === 'number' && typeof pos.top === 'number') {
@@ -537,7 +565,16 @@
     pill.classList.toggle('show', !state.open)
   }
 
-  /* ------------------------------------------------------- header anchoring */
+  /* ------------------------------------------------------------ anchoring */
+
+  function anchorMode() {
+    return normalizeAnchor(state.prefs.anchor, 'header')
+  }
+
+  /** True for every mode that pins the panel to the app chrome. */
+  function isAnchored() {
+    return anchorMode() !== 'float'
+  }
 
   // The DSH conversation header is a plain strip of tabs ("对话 / 上下文 / 编队").
   // We find it by its labels instead of a class name, because the client bundles
@@ -659,25 +696,78 @@
     return { left: left, right: right, top: top, height: height }
   }
 
-  function applyHeaderGeometry() {
+  /**
+   * The conversation column's box: the header's own rectangle when it renders,
+   * otherwise the whole window minus the outer gaps. Both bottom-corner modes
+   * use it so the compact row lines up with the chat column, not the sidebar.
+   */
+  function conversationColumn() {
+    var vp = viewportSize()
+    var tall = headerElement()
+    if (tall && tall.rect.width >= 320) {
+      return { left: tall.rect.left, right: tall.rect.right }
+    }
+    return { left: 0, right: vp.w }
+  }
+
+  /** Band for the two bottom-corner modes: same row height as the header strip. */
+  function bottomBand(align) {
+    var vp = viewportSize()
+    var column = conversationColumn()
+    var gap = 16
+    return {
+      kind: 'bottom',
+      align: align,
+      left: Math.max(8, column.left + gap),
+      right: Math.min(vp.w - 8, column.right - gap),
+      top: 0,
+      height: 0,
+      bottom: vp.h - gap
+    }
+  }
+
+  /** The band the panel lives in for the current anchor mode. */
+  function anchorBand(mode) {
+    if (mode === 'bottom-left' || mode === 'bottom-right') {
+      return bottomBand(mode === 'bottom-right' ? 'right' : 'left')
+    }
+    var band = headerBand()
+    band.kind = 'header'
+    band.align = 'center'
+    band.bottom = band.top + band.height
+    return band
+  }
+
+  function applyAnchoredGeometry() {
+    var mode = anchorMode()
     // The settings view needs the full body too, so it counts as expanded.
     var expanded = state.expanded || state.settings
     win.classList.add('anchor-header')
     win.classList.toggle('minimal', !expanded)
-    var band = headerBand()
+    win.classList.toggle('at-bottom', mode !== 'header')
+    var band = anchorBand(mode)
     var vp = viewportSize()
     var area = Math.max(120, band.right - band.left)
     var maxWidth = Math.max(160, Math.min(area, vp.w - 40))
     win.style.maxWidth = Math.round(maxWidth) + 'px'
     var rect = winRect()
     var width = Math.min(rect.w, maxWidth)
-    var left = band.left + (area - width) / 2
-    var top = expanded
-      ? band.top + band.height + 6
-      : band.top + (band.height - rect.h) / 2
+    var left
+    var top
+    if (band.kind === 'header') {
+      left = band.left + (area - width) / 2
+      top = expanded
+        ? band.top + band.height + 6
+        : band.top + (band.height - rect.h) / 2
+    } else {
+      // Bottom corners: the row rests on the bottom edge and the expanded panel
+      // grows upward, aligned to the same side.
+      left = band.align === 'right' ? band.right - width : band.left
+      top = band.bottom - rect.h
+    }
     win.style.right = 'auto'
     win.style.bottom = 'auto'
-    win.style.left = Math.round(Math.max(6, Math.min(left, vp.w - width - 6))) + 'px'
+    win.style.left = Math.round(Math.max(6, Math.min(left, Math.max(6, vp.w - width - 6)))) + 'px'
     win.style.top = Math.round(Math.max(0, top)) + 'px'
     state.dock = null
   }
@@ -690,7 +780,7 @@
     refitQueued = true
     window.requestAnimationFrame(function () {
       refitQueued = false
-      if (state.prefs.anchor === 'header') applyHeaderGeometry()
+      if (isAnchored()) applyAnchoredGeometry()
       else reapplyDock()
     })
   }
@@ -767,7 +857,7 @@
 
   head.addEventListener('pointerdown', function (event) {
     if (event.button !== 0) return
-    if (state.prefs.anchor === 'header') return
+    if (isAnchored()) return
     var target = event.target
     if (target && (target.tagName === 'SELECT' || target.tagName === 'BUTTON')) return
     var rect = win.getBoundingClientRect()
@@ -815,7 +905,7 @@
     resizeQueued = true
     window.requestAnimationFrame(function () {
       resizeQueued = false
-      if (state.prefs.anchor === 'header') applyHeaderGeometry()
+      if (isAnchored()) applyAnchoredGeometry()
       else reapplyDock()
     })
   })
@@ -836,7 +926,7 @@
     setOpen(true)
   })
   btnCollapse.addEventListener('click', function () {
-    if (state.prefs.anchor === 'header') {
+    if (isAnchored()) {
       setExpanded(!state.expanded)
       return
     }
@@ -847,16 +937,26 @@
     if (!state.collapsed) reapplyDock()
   })
 
-  // In the header strip the compact form is the resting state: a click on the
-  // card row opens the rest of the panel, a click on the cards closes it again.
-  win.addEventListener('click', function () {
-    if (state.prefs.anchor !== 'header' || state.settings || state.expanded) return
-    setExpanded(true)
-  })
-  kpiGrid.addEventListener('click', function (event) {
-    if (state.prefs.anchor !== 'header' || state.settings || !state.expanded) return
-    event.stopPropagation()
-    setExpanded(false)
+  // A click on a control (button / select / input / link / label) is a control
+  // interaction, not a fold request. Everything else counts as "click the panel".
+  function isControlTarget(node) {
+    var cur = node
+    while (cur && cur !== win) {
+      var tag = cur.tagName
+      if (tag === 'BUTTON' || tag === 'SELECT' || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'A' || tag === 'LABEL') return true
+      cur = cur.parentNode
+    }
+    return false
+  }
+
+  // An anchored mode rests as a compact card row: a click anywhere on the panel
+  // opens the rest of it, and a click anywhere on the open panel folds it back —
+  // cards, title row and section background all work, which is what users expect
+  // after clicking the row in the first place.
+  win.addEventListener('click', function (event) {
+    if (!isAnchored() || state.settings) return
+    if (isControlTarget(event.target)) return
+    setExpanded(!state.expanded)
   })
   btnRefresh.addEventListener('click', function () {
     void fetchSnapshot(true)
@@ -879,8 +979,8 @@
       renderSettings()
       // The settings view can be taller than the data view; keep it on screen.
       window.setTimeout(function () {
-        if (state.prefs.anchor === 'header') {
-          applyHeaderGeometry()
+        if (isAnchored()) {
+          applyAnchoredGeometry()
           return
         }
         var rect = winRect()
@@ -906,7 +1006,7 @@
       range: typeof input.range === 'string' && input.range ? input.range : state.prefs.range,
       snap: input.snap === undefined ? state.prefs.snap : input.snap !== false,
       snapDistance: clampNum(input.snapDistance, 0, 80, state.prefs.snapDistance),
-      anchor: input.anchor === 'float' ? 'float' : input.anchor === 'header' ? 'header' : state.prefs.anchor
+      anchor: normalizeAnchor(input.anchor, state.prefs.anchor)
     }
     return next
   }
@@ -984,6 +1084,22 @@
     wrap.appendChild(input)
     wrap.appendChild(el('span', '', label))
     return wrap
+  }
+
+  /** Position picker entry: switching anchor re-places the panel immediately. */
+  function anchorChip(choice) {
+    return chip('anchor-' + choice.value, choice.label, anchorMode() === choice.value, function (on) {
+      if (!on) {
+        // A position cannot be "unchecked": re-render so the active chip stays lit.
+        renderSettings()
+        return
+      }
+      state.prefs.anchor = choice.value
+      state.expanded = false
+      applyGeometry()
+      renderSettings()
+      queueSave()
+    })
   }
 
   function renderSettings() {
@@ -1085,41 +1201,25 @@
 
     var placeSec = el('div', 'wb-set-sec')
     var placeTitle = el('div', 'wb-set-title', '位置')
-    placeTitle.appendChild(el('span', '', state.prefs.anchor === 'header' ? '停在对话框顶部' : '可拖动的浮窗'))
+    placeTitle.appendChild(el('span', '', anchorChoice(anchorMode()).title))
     placeSec.appendChild(placeTitle)
     var placeChips = el('div', 'wb-chips')
-    placeChips.appendChild(chip('anchor-header', '顶部横条（居中）', state.prefs.anchor === 'header', function (on) {
-      if (!on) {
-        renderSettings()
-        return
-      }
-      state.prefs.anchor = 'header'
-      state.expanded = false
-      applyGeometry()
-      renderSettings()
-      queueSave()
-    }))
-    placeChips.appendChild(chip('anchor-float', '自由浮动（可拖动）', state.prefs.anchor === 'float', function (on) {
-      if (!on) {
-        renderSettings()
-        return
-      }
-      state.prefs.anchor = 'float'
-      state.expanded = false
-      applyGeometry()
-      renderSettings()
-      queueSave()
-    }))
+    for (var m = 0; m < ANCHOR_CHOICES.length; m += 1) {
+      placeChips.appendChild(anchorChip(ANCHOR_CHOICES[m]))
+    }
     placeSec.appendChild(placeChips)
-    placeSec.appendChild(el('div', 'wb-hint', state.prefs.anchor === 'header'
-      ? '默认只显示卡片，点卡片展开标题与更新时间。'
-      : '拖到屏幕边缘会自动贴靠。'))
+    placeSec.appendChild(el('div', 'wb-hint', anchorChoice(anchorMode()).hint))
     settingsView.appendChild(placeSec)
 
     var snapSec = el('div', 'wb-set-sec')
     var snapTitle = el('div', 'wb-set-title', '贴边吸附')
-    if (state.prefs.anchor === 'header') snapTitle.appendChild(el('span', '', '仅自由浮动时生效'))
+    if (isAnchored()) snapTitle.appendChild(el('span', '', '仅自由浮动时生效'))
     snapSec.appendChild(snapTitle)
+    if (isAnchored()) {
+      // Anchored modes own the position, so the floating presets only add noise.
+      snapSec.appendChild(el('div', 'wb-hint', '当前为锚定位置，切换到自由浮动后可拖动与贴边。'))
+      settingsView.appendChild(snapSec)
+    } else {
     var snapChips = el('div', 'wb-chips')
     snapChips.appendChild(chip('snap', '拖到边缘自动贴靠', state.prefs.snap, function (on) {
       state.prefs.snap = on
@@ -1180,6 +1280,7 @@
     snapSec.appendChild(docks)
     snapSec.appendChild(el('div', 'wb-hint', '当前位置：' + dockedLabel))
     settingsView.appendChild(snapSec)
+    }
 
     var actions = el('div', 'wb-actions')
     var resetBtn = el('button', 'wb-btn', '恢复默认')
@@ -1193,7 +1294,7 @@
         range: base.range || 'today',
         snap: typeof base.snap === 'boolean' ? base.snap : true,
         snapDistance: typeof base.snapDistance === 'number' ? base.snapDistance : 24,
-        anchor: base.anchor === 'float' ? 'float' : 'header'
+        anchor: normalizeAnchor(base.anchor, 'header')
       })
       state.prefs = defaults
       state.expanded = false
@@ -1414,7 +1515,7 @@
     else footText.textContent = parts.filter(Boolean).join(' · ')
     footText.style.color = state.error || (data && data.error) ? 'var(--wb-bad)' : 'var(--wb-fg3)'
     // The card count decides the width of the compact bar, so re-centre it.
-    if (state.prefs.anchor === 'header' && !state.settings) refit()
+    if (isAnchored() && !state.settings) refit()
   }
 
   /* ------------------------------------------------------------------ fetch */
@@ -1493,7 +1594,7 @@
     // resize); follow the header strip instead of caching its position forever.
     window.setInterval(function () {
       if (document.hidden) return
-      if (state.prefs.anchor === 'header' && state.open && !state.settings) refit()
+      if (isAnchored() && state.open && !state.settings) refit()
     }, 1500)
   }
 

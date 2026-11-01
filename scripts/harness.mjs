@@ -151,7 +151,7 @@ function renderIndex() {
     '<div class="chrome"><div class="tabs"><span class="tab on">对话</span><span class="tab">上下文</span>',
     '<span class="tab">编队</span></div></div>',
     '<div class="stage"><div class="card"><h1>WorkBuddy 数据看板 · 本地验证页</h1>',
-    '<p>顶部横条里是插件注入的面板（dsh-workbuddy-dashboard），数据来自真实网关。</p></div></div>',
+    '<p>屏幕上那块悬浮面板由插件注入（dsh-workbuddy-dashboard），数据来自真实网关。</p></div></div>',
     markup,
     '</body>',
     '</html>',

@@ -331,6 +331,15 @@ test('prefs route stores the view and rebuilds the snapshot', async () => {
     assert.equal(config.json().opacity, 0.7)
     assert.equal(config.json().anchor, 'float')
 
+    // Re-reading keeps the corner positions that the settings chips send.
+    for (const anchor of ['bottom-left', 'bottom-right', 'header']) {
+      const moved = await callWithBody(routes.get('/workbuddy/api/prefs'), '/workbuddy/api/prefs', 'PUT', { anchor })
+      assert.equal(moved.statusCode, 200)
+      assert.equal(moved.json().prefs.anchor, anchor, `the ${anchor} position round-trips`)
+      const reread = await call(routes.get('/workbuddy/api/prefs'), '/workbuddy/api/prefs')
+      assert.equal(reread.json().prefs.anchor, anchor, `the ${anchor} position survives a reload`)
+    }
+
     const rejected = await callWithBody(routes.get('/workbuddy/api/prefs'), '/workbuddy/api/prefs', 'DELETE', {})
     assert.equal(rejected.statusCode, 405)
   } finally {
