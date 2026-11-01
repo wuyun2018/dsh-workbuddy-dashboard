@@ -292,6 +292,7 @@ test('prefs route stores the view and rebuilds the snapshot', async () => {
     assert.deepEqual(first.prefs.cards, DEFAULT_CARDS)
     assert.deepEqual(first.prefs.panels, ['trend', 'recent', 'accounts', 'scheduler'])
     assert.equal(first.prefs.snap, true)
+    assert.equal(first.prefs.anchor, 'header', 'the panel anchors in the conversation header by default')
     assert.equal(first.catalog.kpis.length, KPI_IDS.length)
     assert.equal(first.catalog.panels.length, 4)
 
@@ -303,6 +304,7 @@ test('prefs route stores the view and rebuilds the snapshot', async () => {
       range: 'week',
       snap: false,
       snapDistance: 200,
+      anchor: 'float',
       nope: 'ignored',
     })
     assert.equal(updated.statusCode, 200)
@@ -314,6 +316,7 @@ test('prefs route stores the view and rebuilds the snapshot', async () => {
     assert.equal(saved.prefs.range, 'week')
     assert.equal(saved.prefs.snap, false)
     assert.equal(saved.prefs.snapDistance, 80, 'snap distance is clamped to 80')
+    assert.equal(saved.prefs.anchor, 'float', 'the anchor switch is stored')
     assert.equal(Object.hasOwn(saved.prefs, 'nope'), false)
 
     // The next snapshot renders exactly the saved cards/panels.
@@ -326,6 +329,7 @@ test('prefs route stores the view and rebuilds the snapshot', async () => {
     const config = await call(routes.get('/workbuddy/api/config'), '/workbuddy/api/config')
     assert.deepEqual(config.json().cards, ['cost', 'errors'])
     assert.equal(config.json().opacity, 0.7)
+    assert.equal(config.json().anchor, 'float')
 
     const rejected = await callWithBody(routes.get('/workbuddy/api/prefs'), '/workbuddy/api/prefs', 'DELETE', {})
     assert.equal(rejected.statusCode, 405)
