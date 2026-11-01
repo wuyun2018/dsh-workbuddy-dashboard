@@ -94,13 +94,14 @@
   style.textContent = [
     ':host{all:initial}',
     '*{box-sizing:border-box;font-family:"Segoe UI","Microsoft YaHei UI",system-ui,sans-serif}',
-    '.wb-win{position:absolute;width:344px;pointer-events:auto;border-radius:14px;',
+    '.wb-win{position:absolute;width:344px;pointer-events:auto;border-radius:14px;display:flex;flex-direction:column;',
+    'max-height:calc(100vh - 36px);',
     'background:linear-gradient(160deg,rgba(18,26,38,var(--wb-bg-a)),rgba(11,17,26,var(--wb-bg-a)));',
     'border:1px solid rgba(120,170,255,0.22);box-shadow:0 18px 48px rgba(0,0,0,0.45),0 0 0 1px rgba(255,255,255,0.03) inset;',
     'color:#eef4ff;backdrop-filter:blur(14px) saturate(1.15);-webkit-backdrop-filter:blur(14px) saturate(1.15);',
     'overflow:hidden;transition:opacity .2s ease;font-size:12px;line-height:1.35}',
     '.wb-win.is-dragging{transition:none}',
-    '.wb-head{display:flex;align-items:center;gap:8px;padding:9px 10px 8px;cursor:move;',
+    '.wb-head{display:flex;align-items:center;gap:8px;padding:9px 10px 8px;cursor:move;flex:0 0 auto;',
     'background:linear-gradient(180deg,rgba(90,150,255,0.16),rgba(90,150,255,0.02));',
     'border-bottom:1px solid rgba(120,170,255,0.14)}',
     '.wb-dot{width:8px;height:8px;border-radius:50%;background:#4ade80;box-shadow:0 0 8px rgba(74,222,128,0.85);flex:0 0 auto}',
@@ -111,7 +112,7 @@
     '.wb-btn{pointer-events:auto;border:1px solid rgba(150,190,255,0.2);background:rgba(120,170,255,0.10);',
     'color:#dce8ff;border-radius:7px;padding:3px 7px;font-size:11px;cursor:pointer;line-height:1.2}',
     '.wb-btn:hover{background:rgba(120,170,255,0.22)}',
-    '.wb-body{padding:10px}',
+    '.wb-body{padding:10px;overflow-y:auto;overflow-x:hidden;flex:1 1 auto;min-height:0;scrollbar-width:thin}',
     '.wb-win.collapsed .wb-body{display:none}',
     '.wb-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}',
     '.wb-kpi{background:rgba(120,170,255,0.075);border:1px solid rgba(140,180,255,0.12);border-radius:9px;padding:7px 8px;min-width:0}',
@@ -136,7 +137,7 @@
     '.wb-tag.ok{background:rgba(74,222,128,0.18);color:#86efac}',
     '.wb-tag.cool{background:rgba(251,191,36,0.18);color:#fcd34d}',
     '.wb-tag.off{background:rgba(248,113,113,0.18);color:#fca5a5}',
-    '.wb-foot{display:flex;align-items:center;gap:6px;padding:6px 10px 8px;font-size:9.5px;color:#8199b8;border-top:1px solid rgba(120,170,255,0.1)}',
+    '.wb-foot{display:flex;align-items:center;gap:6px;padding:6px 10px 8px;font-size:9.5px;color:#8199b8;border-top:1px solid rgba(120,170,255,0.1);flex:0 0 auto}',
     '.wb-pill{position:absolute;right:18px;bottom:18px;pointer-events:auto;width:42px;height:42px;border-radius:50%;',
     'border:1px solid rgba(140,190,255,0.35);background:linear-gradient(150deg,#1b2c44,#101a28);color:#cfe2ff;',
     'font-size:11px;font-weight:700;cursor:pointer;box-shadow:0 10px 26px rgba(0,0,0,0.45);display:none}',
@@ -219,7 +220,7 @@
     if (state.collapsed) win.classList.add('collapsed')
     else win.classList.remove('collapsed')
     btnCollapse.textContent = state.collapsed ? '+' : '—'
-    win.style.display = state.open ? 'block' : 'none'
+    win.style.display = state.open ? 'flex' : 'none'
     pill.classList.toggle('show', !state.open)
   }
 

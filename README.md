@@ -9,7 +9,7 @@
 
 ## 特性
 
-- **悬浮面板**（右上角，可拖拽 / 折叠 / 关闭 / 换统计区间）：KPI 卡片、Token 时序、最近请求、账号额度、排程状态，深色玻璃质感，跟随 5–10s 轮询刷新。
+- **悬浮面板**（右下角，可拖拽 / 折叠 / 关闭 / 换统计区间；窗口不够高时面板内部滚动）：KPI 卡片、Token 时序、最近请求、账号额度、排程状态，深色玻璃质感，跟随 5–10s 轮询刷新。
 - **18 个 KPI 指标可选**：tokens、请求数、生成速度、缓存命中、花费、成功率、prompt/completion/reasoning/cached tokens、TTFT、耗时、峰值吞吐、推理占比、错误数、额度、美元花费、就绪账号……默认展示 6 个。
 - **4 个面板可开关**：Token 时序 / 最近请求 / 账号 / 排程，与 KPI 卡片一样按配置裁剪。
 - **三个模型工具**：`workbuddy_status`、`workbuddy_recent`、`workbuddy_accounts`，让 agent 直接回答“今天跑了多少 token / 最近哪几条失败 / 哪个号快没额度了”。
@@ -37,7 +37,7 @@ dsh plugin --profile web add "link:$PWD"
 dsh --profile web
 ```
 
-重启后右下/右上角出现面板，模型也会看到 `workbuddy_*` 工具。
+重启后右下角出现面板，模型也会看到 `workbuddy_*` 工具。
 
 ### 方式 B：手工链接（不跑 pnpm）
 
