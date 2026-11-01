@@ -1,24 +1,28 @@
 # dsh-workbuddy-dashboard
 
-把 **WorkBuddy 网关面板**（`workbuddy2api-hub`）的数据看板搬进 **DeepSeek Harness**：右下角一块可拖拽的悬浮面板，外加三个给模型用的 `workbuddy_*` 工具。
+把 **WorkBuddy 网关面板**（`workbuddy2api-hub`）的数据看板搬进 **DeepSeek Harness**：默认锚在会话页顶部的横条里一块 KPI 卡片条，点一下展开成完整悬浮面板，外加三个给模型用的 `workbuddy_*` 工具。
 
 > A DeepSeek Harness plugin that renders the WorkBuddy gateway dashboard as a floating panel and exposes the same numbers to the agent as tools.
 > Zero build step, zero runtime dependencies, no writes outside the gateway's read-only panel API.
 
-![在 DeepSeek Harness 中的悬浮看板](docs/preview-in-dsh.png)
+![在 DeepSeek Harness 中的顶栏卡片条](docs/preview-in-dsh.png)
 
-![面板内设置：卡片 / 面板 / 不透明度 / 刷新 / 贴边吸附](docs/preview-settings.png)
+![点开卡片条后展开的完整面板](docs/preview-expanded.png)
+
+![面板内设置：卡片 / 面板 / 不透明度 / 刷新 / 位置 / 贴边吸附](docs/preview-settings.png)
 
 ## 特性
 
-- **悬浮面板**（右下角，可拖拽 / 折叠 / 关闭 / 换统计区间；窗口不够高时面板内部滚动）：KPI 卡片、Token 时序、最近请求、账号额度、排程状态，跟随 5–10s 轮询刷新。
+- **顶栏卡片条（默认位置）**：面板锚进会话页顶部那条横条——“对话 / 上下文 / 编队”右侧的空白处居中摆放，只显示 KPI 卡片（一行 chip）。点卡片条展开成完整面板（标题行 + 卡片 + 底部更新时间），再点卡片区收回卡片条；横条宽度、位置随窗口变化实时重排。
+- **可换成自由浮动**：设置里把“位置”切到自由浮动，就是原来那种可拖拽 / 折叠 / 关闭的右下角悬浮窗；两种位置共用同一份卡片与面板选择。
+- **悬浮面板内容**：KPI 卡片、Token 时序、最近请求、账号额度、排程状态，跟随 5–10s 轮询刷新；窗口不够高时面板内部滚动。
 - **跟随界面配色**：面板不定义自己的主题，而是读取 DeepSeek Harness 的设计令牌（`--dsw-alias-*`）——深色/浅色切换、强调色、字体、圆角都跟界面一致，切换主题实时生效；取不到令牌时回落到内置的深/浅底色。
-- **贴边吸附**：把它拖到屏幕边缘附近（默认 24px 以内）就会自动贴靠并记住贴的是哪条边，窗口大小变化后重新贴回去；吸附距离 0–80px 可调，也可以一键贴到左上 / 右上 / 居中 / 左下 / 右下。
-- **面板内设置**（标题栏 ⚙）：KPI 卡片与四个面板的勾选、背景不透明度、刷新间隔、吸附开关与距离、贴靠按钮、恢复默认——改完即时生效并自动保存，不用改配置文件。
+- **贴边吸附**（自由浮动模式）：把它拖到屏幕边缘附近（默认 24px 以内）就会自动贴靠并记住贴的是哪条边，窗口大小变化后重新贴回去；吸附距离 0–80px 可调，也可以一键贴到左上 / 右上 / 居中 / 左下 / 右下。
+- **面板内设置**（标题栏 ⚙）：位置（顶栏 / 浮动）、KPI 卡片与四个面板的勾选、背景不透明度、刷新间隔、吸附开关与距离、贴靠按钮、恢复默认——改完即时生效并自动保存，不用改配置文件。
 - **19 个 KPI 指标可选**：tokens、请求数、生成速度、缓存命中、花费、成功率、prompt/completion/reasoning/cached tokens、TTFT、耗时、峰值吞吐、推理占比、错误数、额度、美元花费、就绪账号、积分消耗……默认展示 7 个（含“积分消耗”）。
 - **4 个面板可开关**：Token 时序 / 最近请求 / 账号 / 排程，与 KPI 卡片一样按配置裁剪。
 - **三个模型工具**：`workbuddy_status`、`workbuddy_recent`、`workbuddy_accounts`，让 agent 直接回答“今天跑了多少 token / 最近哪几条失败 / 哪个号快没额度了”。
-- **偏好跨浏览器共享**：卡片、面板、不透明度、刷新间隔、区间、吸附设置存在 `%LOCALAPPDATA%\dsh-workbuddy-dashboard\prefs.json`，换浏览器或清掉 localStorage 也不会丢。
+- **偏好跨浏览器共享**：卡片、面板、不透明度、刷新间隔、区间、位置、吸附设置存在 `%LOCALAPPDATA%\dsh-workbuddy-dashboard\prefs.json`，换浏览器或清掉 localStorage 也不会丢。
 - **只读、无凭据外泄**：仅访问 `/health`、`/panel/login`、`/usage/*`、`/accounts`、`/scheduler`；不读取、不记录 `key`、`key_name`、`msgs_sha`、`system_sha`、`prefix_sha`、`cost_policy` 等敏感字段。
 - **零构建纯 ESM**：`lib/*.js` 直接就是运行时代码，方便审阅 diff；对 `@deepseek-ai/*` 的依赖全部走可选 `peerDependencies`，缺失时自动降级。
 
@@ -80,6 +84,7 @@ dsh plugin --profile web remove dsh-workbuddy-dashboard
     panels: [trend, recent, accounts, scheduler]
     showPanel: true
     panelOpen: true
+    anchor: header
     opacity: 0.94
     prefsPath: ''
 ```
@@ -93,7 +98,8 @@ dsh plugin --profile web remove dsh-workbuddy-dashboard
 | `cards` | 7 个默认卡 | KPI 指标 id 列表，见下方“指标库”（用户偏好保存过则以偏好为准） |
 | `panels` | 四个全开 | 面板 id：`trend` / `recent` / `accounts` / `scheduler` |
 | `showPanel` | `true` | 关掉后只保留路由与工具，不向页面注入面板 |
-| `panelOpen` | `true` | 面板初始展开 / 折叠 |
+| `panelOpen` | `true` | 面板初始展开 / 折叠（自由浮动模式的 `collapsed` 语义） |
+| `anchor` | `header` | 位置：`header` 锚在会话页顶部横条（默认，只显示卡片，点开完整面板）/ `float` 自由浮动可拖拽 |
 | `opacity` | `0.94` | 面板背景不透明度（0.5–1），文字始终不透明 |
 | `prefsPath` | 空 | 偏好文件路径；空 = `%LOCALAPPDATA%\dsh-workbuddy-dashboard\prefs.json`；`:memory:` 不落盘；以 `\` 结尾视为目录 |
 | `trustedHosts` | `[]` | 额外允许访问插件路由的 Host（默认只信任回环地址） |
@@ -104,11 +110,12 @@ dsh plugin --profile web remove dsh-workbuddy-dashboard
 | --- | --- |
 | KPI 卡片 | 19 个指标点选即显示/隐藏（绿色勾选），至少留一个由你决定，空列表就是只显示面板 |
 | 面板 | Token 时序 / 最近请求 / 账号 / 排程 四个开关，关掉的面板不渲染也不占高度 |
+| 位置 | **顶部横条（居中）**＝锚进会话页顶栏，默认只显示卡片，点卡片展开标题与更新时间；**自由浮动（可拖动）**＝右下角悬浮窗，可拖拽 / 吸附 / 折叠 |
 | 不透明度 | 50%–100% 拖杆，实时改背景 alpha（文字与数值始终不透明） |
 | 外观主题 | 不用选：颜色全部来自当前界面主题（`--dsw-alias-*`），切深色/浅色即时跟随 |
 | 刷新间隔 | 3 / 5 / 10 / 30 / 60 秒，改完立即重新排程轮询 |
-| 贴边吸附 | 开关 + 吸附距离 0–80px；下方五个按钮直接贴到 左上 / 右上 / 居中 / 左下 / 右下，并显示当前位置 |
-| 恢复默认 / 完成 | 恢复默认七卡四面板、0.94、10s、今日、吸附 24px；完成等价于收起设置视图 |
+| 贴边吸附 | 开关 + 吸附距离 0–80px；下方五个按钮直接贴到 左上 / 右上 / 居中 / 左下 / 右下，并显示当前位置（仅自由浮动时生效） |
+| 恢复默认 / 完成 | 恢复默认七卡四面板、顶栏位置、0.94、10s、今日、吸附 24px；完成等价于收起设置视图 |
 
 设置改动 400ms 防抖后 `PUT /workbuddy/api/prefs` 落盘，同时刷新服务端缓存，下一个快照按新选择重算。
 
@@ -142,7 +149,7 @@ dsh plugin --profile web remove dsh-workbuddy-dashboard
 | `GET /workbuddy/api/snapshot?range=&force=` | 面板数据快照（KPI、趋势、最近、账号、排程） |
 | `GET /workbuddy/api/health` | 缓存状态、网关可达性、最近一次错误 |
 | `GET /workbuddy/api/config` | 面板需要的公开配置（不含口令），含偏好与指标/面板目录 |
-| `GET /workbuddy/api/prefs` | 当前用户偏好（`cards` / `panels` / `opacity` / `refreshMs` / `range` / `snap` / `snapDistance`）+ 默认值 + 目录 |
+| `GET /workbuddy/api/prefs` | 当前用户偏好（`cards` / `panels` / `opacity` / `refreshMs` / `range` / `snap` / `snapDistance` / `anchor`）+ 默认值 + 目录 |
 | `PUT /workbuddy/api/prefs` | 保存偏好（只认白名单键，其余字段忽略；越界数值被夹紧），返回保存后的完整偏好 |
 | `GET /workbuddy/panel.js` | 面板前端 bundle |
 
@@ -166,7 +173,7 @@ lib/snapshot.js   KPI 目录与快照裁剪（面板与工具共用）
 lib/prefs.js      用户偏好：读取/规范化/原子写入
 lib/format.js     数字/耗时/金额格式化（对齐桌面看板口径）
 lib/guard.js      路由安全栅栏
-assets/panel.js   注入到页面的悬浮面板（shadow DOM，无框架；含吸附与设置视图）
+assets/panel.js   注入到页面的悬浮面板（shadow DOM，无框架；含顶栏锚定、吸附与设置视图）
 tests/*.test.mjs  node:test 用例 + 脱敏 fixtures
 scripts/          抓 fixture / 本地 harness / 截图与交互探针
 ```
@@ -180,6 +187,8 @@ node scripts/screenshot.mjs "http://127.0.0.1:3091/?token=…" docs/preview-in-d
 node scripts/screenshot.mjs "http://127.0.0.1:3091/?token=…" out.png --size 1280x800 --eval-file scripts/probe-snap.js
 node scripts/screenshot.mjs "http://127.0.0.1:3091/?token=…" out.png --size 1280x800 --eval-file scripts/probe-settings.js
 node scripts/screenshot.mjs "http://127.0.0.1:3091/?token=…" out.png --size 1280x800 --eval-file scripts/probe-state.js
+# 顶栏锚定：卡片条在横条内居中、点开展开、再点收回（输出 band / centerDelta / compact / expanded / folded）
+node scripts/screenshot.mjs "http://127.0.0.1:4010/" out.png --size 1440x900 --eval-file scripts/probe-header.js
 ```
 
 ## 与桌面看板的关系
@@ -188,6 +197,8 @@ node scripts/screenshot.mjs "http://127.0.0.1:3091/?token=…" out.png --size 12
 
 ## 版本记录
 
+- **0.3.1** — 位置改成默认锚在会话页顶部横条（“对话 / 上下文 / 编队”右侧居中）：默认只显示 KPI 卡片条，点卡片展开标题行与底部更新时间、再点卡片收回；新增偏好 `anchor`（`header` / `float`）与设置里的“位置”开关，`float` 保留原来的可拖拽 + 贴边吸附；`header` 模式禁止拖动与吸附，窗口尺寸 / 会话切换后自动重新贴合。测试 31 项。
+- **0.3.0** — 配色改为跟随界面主题：读宿主 `--dsw-alias-*` 令牌（深/浅色、强调色、字体），图表色单独用 `--dsw-alias-link`；新增“积分消耗”卡（`credit_used`，展示区间消耗 + 剩余积分），指标库 19 项，老偏好自动补一次新卡（`applyMigrations`）；测试 36 项（含 live）。
 - **0.2.0** — 贴边吸附（阈值 0–80px、记住贴靠边、resize 重贴、五个一键位置）；面板内 ⚙ 设置视图（KPI/面板勾选、不透明度、刷新间隔、吸附开关与距离、恢复默认）；偏好落盘到 `%LOCALAPPDATA%\dsh-workbuddy-dashboard\prefs.json` 并新增 `GET/PUT /workbuddy/api/prefs`、`prefsPath` 配置；测试 35 项。
 - **0.1.0** — 首个版本：悬浮面板（KPI / 趋势 / 最近 / 账号 / 排程）、18 指标 + 4 面板可配置、3 个 `workbuddy_*` 工具、4 条只读路由 + 安全栅栏、单元/契约/真实网关测试、脱敏 fixtures 与本地 harness。
 

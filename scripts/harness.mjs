@@ -101,7 +101,17 @@ const ctx = {
   },
 }
 
-apply(ctx, { baseUrl, password, range: argValue('--range', 'today'), refreshMs: 5000 })
+// Demo runs keep their preferences in memory so screenshot sessions never touch
+// the real prefs file a user may be relying on.
+const prefsPath = argValue('--prefs', demo ? ':memory:' : '')
+
+apply(ctx, {
+  baseUrl,
+  password,
+  range: argValue('--range', 'today'),
+  refreshMs: 5000,
+  prefsPath,
+})
 
 function renderIndex() {
   const rows = []
@@ -123,17 +133,25 @@ function renderIndex() {
       + '--dsw-alias-state-success-primary:#22c55e;--dsw-alias-state-warn-primary:#f59e0b;'
       + '--dsw-alias-state-error-primary:#f25a5a;'
       + '--dsw-font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}',
-    '.stage{height:100%;display:flex;align-items:center;justify-content:center;',
+    '.stage{height:100%;display:flex;align-items:center;justify-content:center;padding-top:46px;',
     'background:radial-gradient(1200px 600px at 70% 10%,rgba(56,110,190,0.30),transparent 60%),',
     'radial-gradient(900px 500px at 20% 90%,rgba(120,80,200,0.24),transparent 65%)}',
+    // A stand-in for the DSH conversation header, so the panel has a real strip
+    // to anchor to instead of falling back to the top of the viewport.
+    '.chrome{position:fixed;left:0;right:0;top:0;height:46px;display:flex;align-items:center;gap:16px;padding:0 16px;',
+    'border-bottom:1px solid rgba(255,255,255,0.07);background:rgba(12,18,26,0.92);z-index:1}',
+    '.tabs{display:flex;gap:16px;font-size:12px;color:#9db1c9;white-space:nowrap}',
+    '.tab.on{color:#e8eefc;font-weight:600}',
     '.card{padding:26px 30px;border:1px solid rgba(140,180,255,0.16);border-radius:16px;background:rgba(14,22,34,0.72)}',
     'h1{font-size:15px;margin:0 0 6px;font-weight:600;letter-spacing:.3px}',
     'p{margin:0;color:#8fa6c2;font-size:12px}',
     '</style>',
     '</head>',
     '<body data-ds-dark-theme>',
+    '<div class="chrome"><div class="tabs"><span class="tab on">对话</span><span class="tab">上下文</span>',
+    '<span class="tab">编队</span></div></div>',
     '<div class="stage"><div class="card"><h1>WorkBuddy 数据看板 · 本地验证页</h1>',
-    '<p>右下方是插件注入的悬浮面板（dsh-workbuddy-dashboard），数据来自真实网关。</p></div></div>',
+    '<p>顶部横条里是插件注入的面板（dsh-workbuddy-dashboard），数据来自真实网关。</p></div></div>',
     markup,
     '</body>',
     '</html>',

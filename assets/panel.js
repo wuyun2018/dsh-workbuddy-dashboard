@@ -72,6 +72,7 @@
     timer: null,
     open: true,
     collapsed: false,
+    expanded: false,
     settings: false,
     saving: false,
     prefs: {
@@ -81,7 +82,8 @@
       refreshMs: clampNum(boot.refreshMs, 3000, 300000, 10000),
       range: boot.range || 'today',
       snap: boot.snap !== false,
-      snapDistance: clampNum(boot.snapDistance, 0, 80, 24)
+      snapDistance: clampNum(boot.snapDistance, 0, 80, 24),
+      anchor: boot.anchor === 'float' ? 'float' : 'header'
     },
     catalog: { kpis: [], panels: [], ranges: RANGE_FALLBACK },
     dock: null
@@ -296,6 +298,24 @@
     'overflow:hidden;transition:opacity .2s ease;font-size:12px;line-height:1.35}',
     '.wb-win.is-dragging{transition:none}',
     '.wb-win.is-snapped{border-color:rgba(var(--wb-fg-rgb),0.42);box-shadow:0 18px 44px rgba(0,0,0,0.34),0 0 0 1px rgba(var(--wb-fg-rgb),0.22) inset}',
+    // Header anchor: the panel sits inside the conversation header strip. The
+    // compact form shows the cards only; a click opens the rest of the panel.
+    '.wb-win.anchor-header{position:fixed;right:auto;bottom:auto;width:344px;max-height:calc(100vh - 110px);',
+    'border-radius:12px;transition:left .16s ease,top .16s ease,width .16s ease}',
+    '.wb-win.anchor-header.minimal{width:auto;border-radius:10px;cursor:pointer;',
+    'box-shadow:0 6px 18px rgba(0,0,0,0.26);transition:left .16s ease,top .16s ease}',
+    '.wb-win.anchor-header.minimal .wb-head,',
+    '.wb-win.anchor-header.minimal .wb-foot,',
+    '.wb-win.anchor-header.minimal .wb-sec{display:none}',
+    '.wb-win.anchor-header.minimal .wb-body{padding:0;overflow:visible;flex:0 0 auto}',
+    '.wb-win.anchor-header.minimal .wb-kpis{display:flex;align-items:stretch;gap:6px;padding:5px 7px;grid-template-columns:none}',
+    '.wb-win.anchor-header.minimal .wb-kpi{padding:3px 8px;display:flex;align-items:baseline;gap:6px;white-space:nowrap}',
+    '.wb-win.anchor-header.minimal .wb-kpi-label{font-size:9.5px;letter-spacing:.2px}',
+    '.wb-win.anchor-header.minimal .wb-kpi-value{margin:0;font-size:12.5px;font-weight:640}',
+    '.wb-win.anchor-header.minimal .wb-kpi-sub{display:none}',
+    '.wb-win.anchor-header.minimal .wb-kpi.wide{grid-column:auto}',
+    '.wb-win.anchor-header .wb-head{cursor:default}',
+    '.wb-win.anchor-header .wb-kpis{cursor:pointer}',
     '.wb-win.settings .wb-content{display:none}',
     '.wb-win.settings .wb-settings{display:block}',
     '.wb-head{display:flex;align-items:center;gap:6px;padding:9px 10px 8px;cursor:move;flex:0 0 auto;',
@@ -484,6 +504,18 @@
   }
 
   function applyGeometry() {
+    if (state.prefs.anchor === 'header') {
+      // The header strip owns the position: no dragging, no snapping, and the
+      // compact/expanded switch replaces the old collapse.
+      win.classList.remove('collapsed', 'is-snapped', 'is-dragging')
+      btnCollapse.textContent = state.expanded ? '—' : '+'
+      applyHeaderGeometry()
+      win.style.display = state.open ? 'flex' : 'none'
+      pill.classList.toggle('show', !state.open)
+      return
+    }
+    win.classList.remove('anchor-header', 'minimal')
+    win.style.maxWidth = ''
     var pos = state.store.pos
     if (pos && typeof pos.left === 'number' && typeof pos.top === 'number') {
       placeAt(pos.left, pos.top, state.store.dock || null, { persist: false })
@@ -503,6 +535,169 @@
     btnCollapse.textContent = state.collapsed ? '+' : '—'
     win.style.display = state.open ? 'flex' : 'none'
     pill.classList.toggle('show', !state.open)
+  }
+
+  /* ------------------------------------------------------- header anchoring */
+
+  // The DSH conversation header is a plain strip of tabs ("对话 / 上下文 / 编队").
+  // We find it by its labels instead of a class name, because the client bundles
+  // ship hashed class names that change between builds.
+  var HEADER_LABELS = ['对话', '上下文', '编队']
+
+  function compactText(node) {
+    return (node.textContent || '').replace(/\s+/g, '')
+  }
+
+  /** Every shallow strip near the top that carries the conversation tabs. */
+  function headerCandidates() {
+    var nodes = document.querySelectorAll('div,header,section,nav')
+    var out = []
+    for (var i = 0; i < nodes.length; i += 1) {
+      var node = nodes[i]
+      var rect = node.getBoundingClientRect()
+      if (rect.height < 20 || rect.height > 92) continue
+      if (rect.width < 320) continue
+      if (rect.top > 160) continue
+      var text = compactText(node)
+      if (text.indexOf('对话') === -1) continue
+      if (text.indexOf('上下文') === -1 && text.indexOf('编队') === -1) continue
+      out.push({ node: node, rect: rect, area: rect.width * rect.height })
+    }
+    return out
+  }
+
+  /**
+   * The client's own <header>, even when it is collapsed to zero height on the
+   * sessionless home screen. Its box still tells us where the conversation
+   * column starts and ends, which is what the panel should centre inside.
+   */
+  function headerElement() {
+    var nodes = document.querySelectorAll('header')
+    var best = null
+    for (var i = 0; i < nodes.length; i += 1) {
+      var node = nodes[i]
+      var rect = node.getBoundingClientRect()
+      if (rect.width < 320) continue
+      if (rect.top > 160) continue
+      if (!best || rect.width * rect.height > best.rect.width * best.rect.height) {
+        best = { node: node, rect: rect }
+      }
+    }
+    return best
+  }
+
+  /** Right edge of the tab labels found inside (or around) a header box. */
+  function tabsRightNear(node, base) {
+    var right = base
+    var nodes = node.querySelectorAll('*')
+    for (var i = 0; i < nodes.length; i += 1) {
+      var label = (nodes[i].textContent || '').trim()
+      if (HEADER_LABELS.indexOf(label) === -1) continue
+      var box = nodes[i].getBoundingClientRect()
+      if (box.width && box.right > right) right = box.right
+    }
+    return right
+  }
+
+  /**
+   * Right edge of any conversation tab rendered near the top of the window. The
+   * tabs are not always children of the header element, so this is the fallback
+   * that still keeps the panel clear of them.
+   */
+  function tabsRightTop() {
+    var right = 0
+    var nodes = document.querySelectorAll('*')
+    for (var i = 0; i < nodes.length; i += 1) {
+      var label = (nodes[i].textContent || '').trim()
+      if (HEADER_LABELS.indexOf(label) === -1) continue
+      var box = nodes[i].getBoundingClientRect()
+      if (!box.width || box.height > 70 || box.bottom > 200) continue
+      if (box.right > right) right = box.right
+    }
+    return right
+  }
+
+  /** Free horizontal band inside the header, right of the tab labels. */
+  function headerBand() {
+    var vp = viewportSize()
+    var tall = headerElement()
+    var list = headerCandidates()
+    var pick = null
+    if (tall && tall.rect.height >= 20) {
+      // A rendered conversation header wins over any text match: its box is the
+      // row the panel is supposed to live in.
+      pick = tall
+    } else {
+      for (var i = 0; i < list.length; i += 1) {
+        // The row that owns the tabs normally reaches the window's right edge;
+        // pick the deepest (smallest) such row, not the whole app shell.
+        if (list[i].rect.right < vp.w - 240) continue
+        if (!pick || list[i].area < pick.area) pick = list[i]
+      }
+      if (!pick) {
+        for (var j = 0; j < list.length; j += 1) {
+          if (!pick || list[j].rect.width > pick.rect.width) pick = list[j]
+        }
+      }
+    }
+    if (!pick) {
+      // Home screen without any header box: centre inside the visible column.
+      if (tall) {
+        return { left: tall.rect.left + 16, right: tall.rect.right - 16, top: 8, height: 36 }
+      }
+      return { left: 24, right: vp.w - 24, top: 0, height: 46 }
+    }
+    var rect = pick.rect
+    var tabsRight = tabsRightNear(pick.node, rect.left + 8)
+    if (tabsRight <= rect.left + 8) tabsRight = Math.max(tabsRight, tabsRightTop())
+    var left = tabsRight > rect.left + 8
+      ? Math.max(8, tabsRight + 14)
+      : Math.max(8, rect.left + 16)
+    var right = Math.max(left + 80, Math.min(rect.right, vp.w) - 14)
+    var top = rect.height >= 20 ? rect.top : 8
+    var height = rect.height >= 20 ? rect.height : 36
+    return { left: left, right: right, top: top, height: height }
+  }
+
+  function applyHeaderGeometry() {
+    // The settings view needs the full body too, so it counts as expanded.
+    var expanded = state.expanded || state.settings
+    win.classList.add('anchor-header')
+    win.classList.toggle('minimal', !expanded)
+    var band = headerBand()
+    var vp = viewportSize()
+    var area = Math.max(120, band.right - band.left)
+    var maxWidth = Math.max(160, Math.min(area, vp.w - 40))
+    win.style.maxWidth = Math.round(maxWidth) + 'px'
+    var rect = winRect()
+    var width = Math.min(rect.w, maxWidth)
+    var left = band.left + (area - width) / 2
+    var top = expanded
+      ? band.top + band.height + 6
+      : band.top + (band.height - rect.h) / 2
+    win.style.right = 'auto'
+    win.style.bottom = 'auto'
+    win.style.left = Math.round(Math.max(6, Math.min(left, vp.w - width - 6))) + 'px'
+    win.style.top = Math.round(Math.max(0, top)) + 'px'
+    state.dock = null
+  }
+
+  var refitQueued = false
+
+  /** Re-measure and re-place after a layout change (cheap, rAF coalesced). */
+  function refit() {
+    if (refitQueued) return
+    refitQueued = true
+    window.requestAnimationFrame(function () {
+      refitQueued = false
+      if (state.prefs.anchor === 'header') applyHeaderGeometry()
+      else reapplyDock()
+    })
+  }
+
+  function setExpanded(on) {
+    state.expanded = Boolean(on)
+    applyGeometry()
   }
 
   /** Snap the upcoming position to an edge when it is inside the threshold. */
@@ -572,6 +767,7 @@
 
   head.addEventListener('pointerdown', function (event) {
     if (event.button !== 0) return
+    if (state.prefs.anchor === 'header') return
     var target = event.target
     if (target && (target.tagName === 'SELECT' || target.tagName === 'BUTTON')) return
     var rect = win.getBoundingClientRect()
@@ -619,7 +815,8 @@
     resizeQueued = true
     window.requestAnimationFrame(function () {
       resizeQueued = false
-      reapplyDock()
+      if (state.prefs.anchor === 'header') applyHeaderGeometry()
+      else reapplyDock()
     })
   })
 
@@ -639,11 +836,27 @@
     setOpen(true)
   })
   btnCollapse.addEventListener('click', function () {
+    if (state.prefs.anchor === 'header') {
+      setExpanded(!state.expanded)
+      return
+    }
     state.collapsed = !state.collapsed
     state.store.collapsed = state.collapsed
     saveStore()
     applyGeometry()
     if (!state.collapsed) reapplyDock()
+  })
+
+  // In the header strip the compact form is the resting state: a click on the
+  // card row opens the rest of the panel, a click on the cards closes it again.
+  win.addEventListener('click', function () {
+    if (state.prefs.anchor !== 'header' || state.settings || state.expanded) return
+    setExpanded(true)
+  })
+  kpiGrid.addEventListener('click', function (event) {
+    if (state.prefs.anchor !== 'header' || state.settings || !state.expanded) return
+    event.stopPropagation()
+    setExpanded(false)
   })
   btnRefresh.addEventListener('click', function () {
     void fetchSnapshot(true)
@@ -666,6 +879,10 @@
       renderSettings()
       // The settings view can be taller than the data view; keep it on screen.
       window.setTimeout(function () {
+        if (state.prefs.anchor === 'header') {
+          applyHeaderGeometry()
+          return
+        }
         var rect = winRect()
         placeAt(rect.left, rect.top)
         reapplyDock()
@@ -688,7 +905,8 @@
       refreshMs: clampNum(input.refreshMs, 3000, 300000, state.prefs.refreshMs),
       range: typeof input.range === 'string' && input.range ? input.range : state.prefs.range,
       snap: input.snap === undefined ? state.prefs.snap : input.snap !== false,
-      snapDistance: clampNum(input.snapDistance, 0, 80, state.prefs.snapDistance)
+      snapDistance: clampNum(input.snapDistance, 0, 80, state.prefs.snapDistance),
+      anchor: input.anchor === 'float' ? 'float' : input.anchor === 'header' ? 'header' : state.prefs.anchor
     }
     return next
   }
@@ -865,8 +1083,43 @@
     dataSec.appendChild(el('div', 'wb-hint', '后台自动刷新，页面隐藏时暂停'))
     settingsView.appendChild(dataSec)
 
+    var placeSec = el('div', 'wb-set-sec')
+    var placeTitle = el('div', 'wb-set-title', '位置')
+    placeTitle.appendChild(el('span', '', state.prefs.anchor === 'header' ? '停在对话框顶部' : '可拖动的浮窗'))
+    placeSec.appendChild(placeTitle)
+    var placeChips = el('div', 'wb-chips')
+    placeChips.appendChild(chip('anchor-header', '顶部横条（居中）', state.prefs.anchor === 'header', function (on) {
+      if (!on) {
+        renderSettings()
+        return
+      }
+      state.prefs.anchor = 'header'
+      state.expanded = false
+      applyGeometry()
+      renderSettings()
+      queueSave()
+    }))
+    placeChips.appendChild(chip('anchor-float', '自由浮动（可拖动）', state.prefs.anchor === 'float', function (on) {
+      if (!on) {
+        renderSettings()
+        return
+      }
+      state.prefs.anchor = 'float'
+      state.expanded = false
+      applyGeometry()
+      renderSettings()
+      queueSave()
+    }))
+    placeSec.appendChild(placeChips)
+    placeSec.appendChild(el('div', 'wb-hint', state.prefs.anchor === 'header'
+      ? '默认只显示卡片，点卡片展开标题与更新时间。'
+      : '拖到屏幕边缘会自动贴靠。'))
+    settingsView.appendChild(placeSec)
+
     var snapSec = el('div', 'wb-set-sec')
-    snapSec.appendChild(el('div', 'wb-set-title', '贴边吸附'))
+    var snapTitle = el('div', 'wb-set-title', '贴边吸附')
+    if (state.prefs.anchor === 'header') snapTitle.appendChild(el('span', '', '仅自由浮动时生效'))
+    snapSec.appendChild(snapTitle)
     var snapChips = el('div', 'wb-chips')
     snapChips.appendChild(chip('snap', '拖到边缘自动贴靠', state.prefs.snap, function (on) {
       state.prefs.snap = on
@@ -939,12 +1192,15 @@
         refreshMs: typeof base.refreshMs === 'number' ? base.refreshMs : 10000,
         range: base.range || 'today',
         snap: typeof base.snap === 'boolean' ? base.snap : true,
-        snapDistance: typeof base.snapDistance === 'number' ? base.snapDistance : 24
+        snapDistance: typeof base.snapDistance === 'number' ? base.snapDistance : 24,
+        anchor: base.anchor === 'float' ? 'float' : 'header'
       })
       state.prefs = defaults
+      state.expanded = false
       state.store.range = defaults.range
       saveStore()
       applyVisualPrefs()
+      applyGeometry()
       renderSettings()
       queueSave()
     })
@@ -1157,6 +1413,8 @@
     if (state.settings) footText.textContent = '设置会自动保存 · 点 ✓ 完成'
     else footText.textContent = parts.filter(Boolean).join(' · ')
     footText.style.color = state.error || (data && data.error) ? 'var(--wb-bad)' : 'var(--wb-fg3)'
+    // The card count decides the width of the compact bar, so re-centre it.
+    if (state.prefs.anchor === 'header' && !state.settings) refit()
   }
 
   /* ------------------------------------------------------------------ fetch */
@@ -1196,6 +1454,7 @@
         if (config.prefs) state.prefs = normalizePrefs(config.prefs)
         if (state.store.range) state.prefs.range = state.store.range
         applyVisualPrefs()
+        applyGeometry()
         renderSettings()
       })
       .catch(function () {
@@ -1230,6 +1489,12 @@
       return fetchSnapshot(false)
     })
     restartPolling()
+    // The host re-renders its chrome (sidebar toggle, new conversation, window
+    // resize); follow the header strip instead of caching its position forever.
+    window.setInterval(function () {
+      if (document.hidden) return
+      if (state.prefs.anchor === 'header' && state.open && !state.settings) refit()
+    }, 1500)
   }
 
   mount()

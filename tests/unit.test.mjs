@@ -265,6 +265,7 @@ test('normalizePrefs clamps values and keeps an explicit empty selection', () =>
     range: 'today',
     snap: true,
     snapDistance: 24,
+    anchor: 'header',
   }
   const prefs = normalizePrefs(
     {
@@ -275,6 +276,7 @@ test('normalizePrefs clamps values and keeps an explicit empty selection', () =>
       range: 'bogus',
       snap: 'yes',
       snapDistance: -9,
+      anchor: 'sideways',
     },
     defaults,
   )
@@ -285,6 +287,7 @@ test('normalizePrefs clamps values and keeps an explicit empty selection', () =>
   assert.equal(prefs.range, 'today')
   assert.equal(prefs.snap, true, 'only `false` disables snapping')
   assert.equal(prefs.snapDistance, SNAP_MIN)
+  assert.equal(prefs.anchor, 'header', 'an unknown anchor falls back to the default')
 
   assert.deepEqual(normalizePrefs({}, defaults), defaults, 'an empty object keeps the defaults')
 })
@@ -298,10 +301,12 @@ test('sanitizePatch keeps only known keys with acceptable types', () => {
     range: 'week',
     snap: false,
     snapDistance: 12,
+    anchor: 'float',
     nope: 'ignored',
     panelOpen: false,
   })
   assert.deepEqual(Object.keys(patch).sort(), [
+    'anchor',
     'cards',
     'opacity',
     'panels',
@@ -312,8 +317,10 @@ test('sanitizePatch keeps only known keys with acceptable types', () => {
   ])
   assert.equal(patch.cards, 'tokens,cost')
   assert.equal(patch.opacity, 0.7)
+  assert.equal(patch.anchor, 'float')
 
   assert.deepEqual(sanitizePatch({ snap: 'yes', cards: 5, opacity: {}, panels: 3 }), {}, 'wrong types are dropped')
+  assert.deepEqual(sanitizePatch({ anchor: 'diagonal' }), {}, 'an unknown position is dropped')
 })
 
 test('savePrefs writes atomically and loadPrefs tolerates a broken file', async () => {
