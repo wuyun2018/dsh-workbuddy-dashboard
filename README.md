@@ -7,12 +7,17 @@
 
 ![在 DeepSeek Harness 中的悬浮看板](docs/preview-in-dsh.png)
 
+![面板内设置：卡片 / 面板 / 不透明度 / 刷新 / 贴边吸附](docs/preview-settings.png)
+
 ## 特性
 
 - **悬浮面板**（右下角，可拖拽 / 折叠 / 关闭 / 换统计区间；窗口不够高时面板内部滚动）：KPI 卡片、Token 时序、最近请求、账号额度、排程状态，深色玻璃质感，跟随 5–10s 轮询刷新。
+- **贴边吸附**：把它拖到屏幕边缘附近（默认 24px 以内）就会自动贴靠并记住贴的是哪条边，窗口大小变化后重新贴回去；吸附距离 0–80px 可调，也可以一键贴到左上 / 右上 / 居中 / 左下 / 右下。
+- **面板内设置**（标题栏 ⚙）：KPI 卡片与四个面板的勾选、背景不透明度、刷新间隔、吸附开关与距离、贴靠按钮、恢复默认——改完即时生效并自动保存，不用改配置文件。
 - **18 个 KPI 指标可选**：tokens、请求数、生成速度、缓存命中、花费、成功率、prompt/completion/reasoning/cached tokens、TTFT、耗时、峰值吞吐、推理占比、错误数、额度、美元花费、就绪账号……默认展示 6 个。
 - **4 个面板可开关**：Token 时序 / 最近请求 / 账号 / 排程，与 KPI 卡片一样按配置裁剪。
 - **三个模型工具**：`workbuddy_status`、`workbuddy_recent`、`workbuddy_accounts`，让 agent 直接回答“今天跑了多少 token / 最近哪几条失败 / 哪个号快没额度了”。
+- **偏好跨浏览器共享**：卡片、面板、不透明度、刷新间隔、区间、吸附设置存在 `%LOCALAPPDATA%\dsh-workbuddy-dashboard\prefs.json`，换浏览器或清掉 localStorage 也不会丢。
 - **只读、无凭据外泄**：仅访问 `/health`、`/panel/login`、`/usage/*`、`/accounts`、`/scheduler`；不读取、不记录 `key`、`key_name`、`msgs_sha`、`system_sha`、`prefix_sha`、`cost_policy` 等敏感字段。
 - **零构建纯 ESM**：`lib/*.js` 直接就是运行时代码，方便审阅 diff；对 `@deepseek-ai/*` 的依赖全部走可选 `peerDependencies`，缺失时自动降级。
 
@@ -61,7 +66,7 @@ dsh plugin --profile web remove dsh-workbuddy-dashboard
 
 ## 配置
 
-设置页（Settings → Plugins → dsh-workbuddy-dashboard）或 profile 的 `cordis.patch.yml` 均可改：
+设置页（Settings → Plugins → dsh-workbuddy-dashboard）或 profile 的 `cordis.patch.yml` 均可改；面板内的 ⚙ 设置视图改的是**用户偏好**，会覆盖这里的 `cards` / `panels` / `opacity` / `refreshMs` / `range`。
 
 ```yaml
 - id: dsh-workbuddy-dashboard
@@ -75,6 +80,7 @@ dsh plugin --profile web remove dsh-workbuddy-dashboard
     showPanel: true
     panelOpen: true
     opacity: 0.94
+    prefsPath: ''
 ```
 
 | 字段 | 默认 | 说明 |
@@ -83,12 +89,26 @@ dsh plugin --profile web remove dsh-workbuddy-dashboard
 | `password` | `admin` | 面板口令，仅用于换 `X-Panel-Token`，不落盘、不写日志 |
 | `range` | `today` | 默认区间：`today` / `d3` / `week` / `month` / `d30` / `all` |
 | `refreshMs` | `10000` | 轮询间隔，范围 3000–300000 |
-| `cards` | 6 个默认卡 | KPI 指标 id 列表，见下方“指标库” |
+| `cards` | 6 个默认卡 | KPI 指标 id 列表，见下方“指标库”（用户偏好保存过则以偏好为准） |
 | `panels` | 四个全开 | 面板 id：`trend` / `recent` / `accounts` / `scheduler` |
 | `showPanel` | `true` | 关掉后只保留路由与工具，不向页面注入面板 |
 | `panelOpen` | `true` | 面板初始展开 / 折叠 |
 | `opacity` | `0.94` | 面板背景不透明度（0.5–1），文字始终不透明 |
+| `prefsPath` | 空 | 偏好文件路径；空 = `%LOCALAPPDATA%\dsh-workbuddy-dashboard\prefs.json`；`:memory:` 不落盘；以 `\` 结尾视为目录 |
 | `trustedHosts` | `[]` | 额外允许访问插件路由的 Host（默认只信任回环地址） |
+
+### 面板内设置（⚙）
+
+| 项 | 说明 |
+| --- | --- |
+| KPI 卡片 | 18 个指标点选即显示/隐藏（绿色勾选），至少留一个由你决定，空列表就是只显示面板 |
+| 面板 | Token 时序 / 最近请求 / 账号 / 排程 四个开关，关掉的面板不渲染也不占高度 |
+| 不透明度 | 50%–100% 拖杆，实时改背景 alpha（文字与数值始终不透明） |
+| 刷新间隔 | 3 / 5 / 10 / 30 / 60 秒，改完立即重新排程轮询 |
+| 贴边吸附 | 开关 + 吸附距离 0–80px；下方五个按钮直接贴到 左上 / 右上 / 居中 / 左下 / 右下，并显示当前位置 |
+| 恢复默认 / 完成 | 恢复六卡四面板、0.94、10s、今日、吸附 24px；完成等价于收起设置视图 |
+
+设置改动 400ms 防抖后 `PUT /workbuddy/api/prefs` 落盘，同时刷新服务端缓存，下一个快照按新选择重算。
 
 ### 指标库（`cards` 可用 id）
 
@@ -111,22 +131,24 @@ dsh plugin --profile web remove dsh-workbuddy-dashboard
 
 ## HTTP 路由
 
-插件在 harness 的同一个端口上挂了 4 条只读路由，供面板自身调用：
+插件在 harness 的同一个端口上挂了 6 条路由，供面板自身调用：
 
 | 路由 | 说明 |
 | --- | --- |
 | `GET /workbuddy/api/snapshot?range=&force=` | 面板数据快照（KPI、趋势、最近、账号、排程） |
 | `GET /workbuddy/api/health` | 缓存状态、网关可达性、最近一次错误 |
-| `GET /workbuddy/api/config` | 面板需要的公开配置（不含口令） |
+| `GET /workbuddy/api/config` | 面板需要的公开配置（不含口令），含偏好与指标/面板目录 |
+| `GET /workbuddy/api/prefs` | 当前用户偏好（`cards` / `panels` / `opacity` / `refreshMs` / `range` / `snap` / `snapDistance`）+ 默认值 + 目录 |
+| `PUT /workbuddy/api/prefs` | 保存偏好（只认白名单键，其余字段忽略；越界数值被夹紧），返回保存后的完整偏好 |
 | `GET /workbuddy/panel.js` | 面板前端 bundle |
 
-**安全边界**：所有路由先过 `lib/guard.js` —— Host 必须是回环地址或在 `trustedHosts` 白名单、`Sec-Fetch-Site: cross-site/same-site` 一律拒绝、带 `Origin` 时要求与 Host 同源；判定异常时按 **拒绝** 处理（fail-closed）。
+**安全边界**：所有路由先过 `lib/guard.js` —— Host 必须是回环地址或在 `trustedHosts` 白名单、`Sec-Fetch-Site: cross-site/same-site` 一律拒绝、带 `Origin` 时要求与 Host 同源；判定异常时按 **拒绝** 处理（fail-closed）。偏好文件是本地 JSON，写入先写临时文件再 `rename`，避免半截文件。
 
 ## 开发
 
 ```powershell
-npm test              # 单元 + 插件契约测试（29 项，无网络）
-npm run test:live     # 真实网关 smoke（网关不在线时自动 skip）
+npm test              # 单元 + 插件契约测试（30 项，无网络）
+npm run test:live     # 真实网关 smoke（5 项，网关不在线时自动 skip）
 npm run harness       # 本地验证页 http://127.0.0.1:4010/ ，连真实网关
 npm run harness:demo  # 同上，但用脱敏 fixtures，适合截图/演示
 ```
@@ -137,25 +159,32 @@ npm run harness:demo  # 同上，但用脱敏 fixtures，适合截图/演示
 lib/index.js      宿主插件：路由、注入、缓存、工具
 lib/gateway.js    网关客户端：登录、401 重登、超时、区间换算
 lib/snapshot.js   KPI 目录与快照裁剪（面板与工具共用）
+lib/prefs.js      用户偏好：读取/规范化/原子写入
 lib/format.js     数字/耗时/金额格式化（对齐桌面看板口径）
 lib/guard.js      路由安全栅栏
-assets/panel.js   注入到页面的悬浮面板（shadow DOM，无框架）
+assets/panel.js   注入到页面的悬浮面板（shadow DOM，无框架；含吸附与设置视图）
 tests/*.test.mjs  node:test 用例 + 脱敏 fixtures
-scripts/          抓 fixture / 本地 harness / 截图工具
+scripts/          抓 fixture / 本地 harness / 截图与交互探针
 ```
 
-截图工具（可选，需要本机 Edge）：
+截图与交互探针（可选，需要本机 Edge）：
 
 ```powershell
+# 出图
 node scripts/screenshot.mjs "http://127.0.0.1:3091/?token=…" docs/preview-in-dsh.png --wait 10000 --size 1440x900
+# 交互验证：吸附（12px 间隙应贴边、36px 不应贴边）、设置视图、持久化后的渲染
+node scripts/screenshot.mjs "http://127.0.0.1:3091/?token=…" out.png --size 1280x800 --eval-file scripts/probe-snap.js
+node scripts/screenshot.mjs "http://127.0.0.1:3091/?token=…" out.png --size 1280x800 --eval-file scripts/probe-settings.js
+node scripts/screenshot.mjs "http://127.0.0.1:3091/?token=…" out.png --size 1280x800 --eval-file scripts/probe-state.js
 ```
 
 ## 与桌面看板的关系
 
-同仓库出身的 Windows 桌面悬浮看板（`workbuddy-dashboard-widget`）是 PowerShell + WPF 的独立进程；本插件是它的“浏览器内版本”——相同的 KPI 目录、相同的格式化口径、相同的区间语义，方便两边数字对得上。
+同仓库出身的 Windows 桌面悬浮看板（`workbuddy-dashboard-widget`）是 PowerShell + WPF 的独立进程；本插件是它的“浏览器内版本”——相同的 KPI 目录、相同的格式化口径、相同的区间语义，方便两边数字对得上。桌面版的分层透明、卡片自定义、贴边行为都在这里做了对应的 Web 实现。
 
 ## 版本记录
 
+- **0.2.0** — 贴边吸附（阈值 0–80px、记住贴靠边、resize 重贴、五个一键位置）；面板内 ⚙ 设置视图（KPI/面板勾选、不透明度、刷新间隔、吸附开关与距离、恢复默认）；偏好落盘到 `%LOCALAPPDATA%\dsh-workbuddy-dashboard\prefs.json` 并新增 `GET/PUT /workbuddy/api/prefs`、`prefsPath` 配置；测试 35 项。
 - **0.1.0** — 首个版本：悬浮面板（KPI / 趋势 / 最近 / 账号 / 排程）、18 指标 + 4 面板可配置、3 个 `workbuddy_*` 工具、4 条只读路由 + 安全栅栏、单元/契约/真实网关测试、脱敏 fixtures 与本地 harness。
 
 ## 许可

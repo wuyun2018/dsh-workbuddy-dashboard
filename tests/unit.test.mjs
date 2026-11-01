@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -11,6 +12,16 @@ import {
   RANGES,
 } from '../lib/gateway.js'
 import { guardRequest, hostNameOf, parseTrustedHosts } from '../lib/guard.js'
+import {
+  loadPrefs,
+  mergePrefs,
+  normalizePrefs,
+  resolvePrefsFile,
+  sanitizePatch,
+  savePrefs,
+  SNAP_MAX,
+  SNAP_MIN,
+} from '../lib/prefs.js'
 import {
   buildSnapshot,
   DEFAULT_CARDS,
@@ -235,4 +246,101 @@ test('buildSnapshot honours custom card and panel selections', async () => {
   assert.deepEqual(snapshot.kpis.map((k) => k.id), ['cost', 'cache', 'accounts_ready'])
   assert.deepEqual(snapshot.panels, ['trend'])
   assert.equal(snapshot.kpis[2].value, '0/0')
+})
+
+/* ------------------------------------------------------------------- prefs */
+
+test('normalizePrefs clamps values and keeps an explicit empty selection', () => {
+  const defaults = {
+    cards: ['tokens'],
+    panels: ['trend'],
+    opacity: 0.94,
+    refreshMs: 10000,
+    range: 'today',
+    snap: true,
+    snapDistance: 24,
+  }
+  const prefs = normalizePrefs(
+    {
+      cards: ['cost', 'cost', 'nope', ' cache '],
+      panels: [],
+      opacity: 3,
+      refreshMs: 5,
+      range: 'bogus',
+      snap: 'yes',
+      snapDistance: -9,
+    },
+    defaults,
+  )
+  assert.deepEqual(prefs.cards, ['cost', 'cache'], 'duplicates, unknown ids and blanks are dropped')
+  assert.deepEqual(prefs.panels, [], 'an explicit empty panel list survives')
+  assert.equal(prefs.opacity, 1)
+  assert.equal(prefs.refreshMs, 3000)
+  assert.equal(prefs.range, 'today')
+  assert.equal(prefs.snap, true, 'only `false` disables snapping')
+  assert.equal(prefs.snapDistance, SNAP_MIN)
+
+  assert.deepEqual(normalizePrefs({}, defaults), defaults, 'an empty object keeps the defaults')
+})
+
+test('sanitizePatch keeps only known keys with acceptable types', () => {
+  const patch = sanitizePatch({
+    cards: 'tokens,cost',
+    panels: ['recent'],
+    opacity: '0.7',
+    refreshMs: 30000,
+    range: 'week',
+    snap: false,
+    snapDistance: 12,
+    nope: 'ignored',
+    panelOpen: false,
+  })
+  assert.deepEqual(Object.keys(patch).sort(), [
+    'cards',
+    'opacity',
+    'panels',
+    'range',
+    'refreshMs',
+    'snap',
+    'snapDistance',
+  ])
+  assert.equal(patch.cards, 'tokens,cost')
+  assert.equal(patch.opacity, 0.7)
+
+  assert.deepEqual(sanitizePatch({ snap: 'yes', cards: 5, opacity: {}, panels: 3 }), {}, 'wrong types are dropped')
+})
+
+test('savePrefs writes atomically and loadPrefs tolerates a broken file', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'wbdash-prefs-'))
+  const file = join(dir, 'nested', 'prefs.json')
+  const prefs = normalizePrefs({ cards: ['cost'], panels: [], opacity: 0.66, snapDistance: 30 })
+
+  assert.equal(savePrefs(file, prefs), true)
+  assert.deepEqual(await readdir(dirname(file)), ['prefs.json'], 'no temp file is left behind')
+
+  const loaded = loadPrefs(file)
+  assert.deepEqual(loaded.prefs, prefs)
+  assert.equal(loaded.stored, true)
+
+  await writeFile(file, '{ broken json')
+  const recovered = loadPrefs(file)
+  assert.equal(recovered.stored, false)
+  assert.deepEqual(recovered.prefs.cards, DEFAULT_CARDS, 'a corrupt file falls back to the defaults')
+})
+
+test('resolvePrefsFile maps the config knobs onto real paths', () => {
+  assert.match(resolvePrefsFile({}), /dsh-workbuddy-dashboard[\\/]prefs\.json$/)
+  assert.equal(resolvePrefsFile({ prefsPath: ':memory:' }), '')
+  assert.equal(resolvePrefsFile({ prefsPath: 'off' }), '')
+  assert.match(resolvePrefsFile({ prefsPath: 'C:/data/' }), /prefs\.json$/)
+  assert.equal(resolvePrefsFile({ prefsPath: 'C:/data/custom.json' }), 'C:/data/custom.json')
+})
+
+test('mergePrefs applies a patch on top of the current selection', () => {
+  const current = normalizePrefs({ cards: ['tokens', 'cost'], panels: ['trend'], opacity: 0.9 })
+  const merged = mergePrefs(current, { cards: ['errors'], snapDistance: 500 })
+  assert.deepEqual(merged.cards, ['errors'])
+  assert.deepEqual(merged.panels, ['trend'], 'untouched keys survive the patch')
+  assert.equal(merged.opacity, 0.9)
+  assert.equal(merged.snapDistance, SNAP_MAX, 'out of range values are clamped, not rejected')
 })

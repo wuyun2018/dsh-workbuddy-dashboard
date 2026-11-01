@@ -3,7 +3,15 @@
  *
  * Rendered inside a shadow root so the DSH web UI styles cannot leak in or out.
  * Data comes exclusively from the plugin's own loopback routes:
- *   GET /workbuddy/api/snapshot?range=<id>
+ *   GET  /workbuddy/api/snapshot?range=<id>
+ *   GET  /workbuddy/api/config
+ *   GET  /workbuddy/api/prefs
+ *   PUT  /workbuddy/api/prefs
+ *
+ * The panel can be dragged anywhere, snaps to the nearest viewport edge when it
+ * gets close (like dsh-whale-widget's snap zones), and carries a settings view
+ * for cards, panels, opacity, refresh interval and snapping. Preferences are
+ * stored by the host plugin, so every browser window shares them.
  *
  * No framework, no build step, no external assets.
  */
@@ -16,6 +24,13 @@
   var boot = window.__WB_DASH__ || {}
   var BASE = boot.base || '/workbuddy'
   var STORE_KEY = 'wb-dash:v1'
+  var REFRESH_CHOICES = [
+    { ms: 3000, label: '3 秒' },
+    { ms: 5000, label: '5 秒' },
+    { ms: 10000, label: '10 秒' },
+    { ms: 30000, label: '30 秒' },
+    { ms: 60000, label: '60 秒' }
+  ]
   var RANGE_FALLBACK = [
     { id: 'today', label: '今日' },
     { id: 'd3', label: '近 3 天' },
@@ -43,21 +58,40 @@
     }
   }
 
+  function clampNum(value, min, max, fallback) {
+    var number = Number(value)
+    if (!isFinite(number)) return fallback
+    return Math.min(max, Math.max(min, number))
+  }
+
   var state = {
     store: loadStore(),
-    range: '',
     data: null,
     error: null,
     busy: false,
     timer: null,
-    ranges: RANGE_FALLBACK,
-    refreshMs: Number(boot.refreshMs) > 0 ? Number(boot.refreshMs) : 10000,
     open: true,
-    collapsed: false
+    collapsed: false,
+    settings: false,
+    saving: false,
+    prefs: {
+      cards: Array.isArray(boot.cards) ? boot.cards.slice() : [],
+      panels: Array.isArray(boot.panels) ? boot.panels.slice() : [],
+      opacity: clampNum(boot.opacity, 0.5, 1, 0.94),
+      refreshMs: clampNum(boot.refreshMs, 3000, 300000, 10000),
+      range: boot.range || 'today',
+      snap: boot.snap !== false,
+      snapDistance: clampNum(boot.snapDistance, 0, 80, 24)
+    },
+    catalog: { kpis: [], panels: [], ranges: RANGE_FALLBACK },
+    dock: null
   }
-  state.range = state.store.range || boot.range || 'today'
   state.open = state.store.closed === true ? false : boot.open !== false
   state.collapsed = state.store.collapsed === true
+  if (state.store.range) state.prefs.range = state.store.range
+  if (state.store.dock && typeof state.store.dock === 'object') state.dock = state.store.dock
+  if (!state.prefs.cards.length) state.prefs.cards = ['tokens', 'requests', 'speed', 'cache', 'cost', 'success']
+  if (!state.prefs.panels.length) state.prefs.panels = ['trend', 'recent', 'accounts', 'scheduler']
 
   /* ---------------------------------------------------------------- helpers */
 
@@ -83,6 +117,10 @@
     return String(Math.round(n))
   }
 
+  function panelShown(id) {
+    return state.prefs.panels.indexOf(id) !== -1
+  }
+
   /* ------------------------------------------------------------------- view */
 
   var host = document.createElement('div')
@@ -101,19 +139,25 @@
     'color:#eef4ff;backdrop-filter:blur(14px) saturate(1.15);-webkit-backdrop-filter:blur(14px) saturate(1.15);',
     'overflow:hidden;transition:opacity .2s ease;font-size:12px;line-height:1.35}',
     '.wb-win.is-dragging{transition:none}',
-    '.wb-head{display:flex;align-items:center;gap:8px;padding:9px 10px 8px;cursor:move;flex:0 0 auto;',
+    '.wb-win.is-snapped{border-color:rgba(120,170,255,0.42);box-shadow:0 18px 48px rgba(0,0,0,0.45),0 0 0 1px rgba(120,170,255,0.28) inset}',
+    '.wb-win.settings .wb-content{display:none}',
+    '.wb-win.settings .wb-settings{display:block}',
+    '.wb-head{display:flex;align-items:center;gap:6px;padding:9px 10px 8px;cursor:move;flex:0 0 auto;',
     'background:linear-gradient(180deg,rgba(90,150,255,0.16),rgba(90,150,255,0.02));',
     'border-bottom:1px solid rgba(120,170,255,0.14)}',
     '.wb-dot{width:8px;height:8px;border-radius:50%;background:#4ade80;box-shadow:0 0 8px rgba(74,222,128,0.85);flex:0 0 auto}',
     '.wb-dot.off{background:#f87171;box-shadow:0 0 8px rgba(248,113,113,0.85)}',
-    '.wb-title{font-size:12.5px;font-weight:600;letter-spacing:.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
-    '.wb-sub{font-size:10.5px;color:#9fb4d0;margin-left:2px}',
+    '.wb-title{font-size:12.5px;font-weight:600;letter-spacing:.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:0}',
     '.wb-spacer{flex:1 1 auto}',
     '.wb-btn{pointer-events:auto;border:1px solid rgba(150,190,255,0.2);background:rgba(120,170,255,0.10);',
     'color:#dce8ff;border-radius:7px;padding:3px 7px;font-size:11px;cursor:pointer;line-height:1.2}',
     '.wb-btn:hover{background:rgba(120,170,255,0.22)}',
+    '.wb-btn.on{background:rgba(120,170,255,0.32);border-color:rgba(150,200,255,0.5)}',
+    '.wb-win.settings .wb-head-tool{display:none}',
+    '.wb-head .wb-btn{padding:3px 5px;font-size:10.5px;flex:0 0 auto}',
     '.wb-body{padding:10px;overflow-y:auto;overflow-x:hidden;flex:1 1 auto;min-height:0;scrollbar-width:thin}',
     '.wb-win.collapsed .wb-body{display:none}',
+    '.wb-content{display:block}',
     '.wb-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}',
     '.wb-kpi{background:rgba(120,170,255,0.075);border:1px solid rgba(140,180,255,0.12);border-radius:9px;padding:7px 8px;min-width:0}',
     '.wb-kpi-label{font-size:10px;color:#9fb4d0;letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
@@ -143,49 +187,78 @@
     'font-size:11px;font-weight:700;cursor:pointer;box-shadow:0 10px 26px rgba(0,0,0,0.45);display:none}',
     '.wb-pill.show{display:block}',
     '.wb-select{pointer-events:auto;background:rgba(12,20,32,0.9);color:#dce8ff;border:1px solid rgba(150,190,255,0.24);',
-    'border-radius:7px;padding:2px 5px;font-size:11px}',
+    'border-radius:7px;padding:2px 4px;font-size:10.5px}',
     '.wb-empty{color:#8fa6c2;font-size:10.5px;padding:4px 0}',
     '.wb-note{color:#93aac6;font-size:10px;line-height:1.45;margin:0 0 3px;display:-webkit-box;',
-    '-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}'
+    '-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}',
+    '.wb-settings{display:none}',
+    '.wb-set-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}',
+    '.wb-set-head .wb-title{font-size:12px}',
+    '.wb-set-sec{margin-top:10px}',
+    '.wb-set-sec:first-of-type{margin-top:0}',
+    '.wb-set-title{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#cfe0ff;margin-bottom:4px}',
+    '.wb-set-title span{font-size:9.5px;color:#8199b8;font-weight:400}',
+    '.wb-chips{display:flex;flex-wrap:wrap;gap:5px}',
+    '.wb-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 7px;border-radius:7px;cursor:pointer;',
+    'border:1px solid rgba(140,180,255,0.16);background:rgba(120,170,255,0.06);color:#aebfd6;font-size:10.5px;user-select:none}',
+    '.wb-chip:hover{background:rgba(120,170,255,0.14)}',
+    '.wb-chip.on{background:rgba(120,170,255,0.22);border-color:rgba(150,200,255,0.45);color:#eaf2ff}',
+    '.wb-chip input{margin:0;accent-color:#60a5fa;width:11px;height:11px}',
+    '.wb-field{display:flex;align-items:center;gap:8px;margin:5px 0;color:#aebfd6;font-size:10.5px}',
+    '.wb-field label{flex:0 0 62px;color:#9fb4d0}',
+    '.wb-field input[type=range]{flex:1 1 auto;accent-color:#60a5fa;height:14px}',
+    '.wb-field .val{flex:0 0 46px;text-align:right;color:#dce8ff;font-variant-numeric:tabular-nums}',
+    '.wb-actions{display:flex;gap:6px;margin-top:12px;padding-top:8px;border-top:1px solid rgba(120,170,255,0.12)}',
+    '.wb-actions .wb-btn{padding:4px 9px}',
+    '.wb-actions .grow{flex:1 1 auto}',
+    '.wb-docks{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;max-width:150px}',
+    '.wb-docks .wb-btn{padding:3px 4px;font-size:10px}',
+    '.wb-hint{color:#7d92ad;font-size:9.5px;margin-top:3px}'
   ].join('')
 
   var win = el('div', 'wb-win')
-  win.style.setProperty('--wb-bg-a', String(Math.max(0.5, Math.min(1, Number(boot.opacity) || 0.94))))
+  win.style.setProperty('--wb-bg-a', String(clampNum(state.prefs.opacity, 0.5, 1, 0.94)))
 
   var head = el('div', 'wb-head')
   var dot = el('span', 'wb-dot')
   var title = el('span', 'wb-title', 'WorkBuddy')
-  var sub = el('span', 'wb-sub', '')
   var spacer = el('span', 'wb-spacer')
   var rangeSelect = document.createElement('select')
-  rangeSelect.className = 'wb-select'
+  rangeSelect.className = 'wb-select wb-head-tool'
   rangeSelect.title = '统计区间'
-  var btnRefresh = el('button', 'wb-btn', '⟳')
+  var btnRefresh = el('button', 'wb-btn wb-head-tool', '⟳')
   btnRefresh.title = '立即刷新'
+  var btnSettings = el('button', 'wb-btn', '⚙')
+  btnSettings.title = '设置'
   var btnCollapse = el('button', 'wb-btn', '—')
   btnCollapse.title = '折叠'
   var btnClose = el('button', 'wb-btn', '✕')
   btnClose.title = '关闭（浮标可重新打开）'
   head.appendChild(dot)
   head.appendChild(title)
-  head.appendChild(sub)
   head.appendChild(spacer)
   head.appendChild(rangeSelect)
   head.appendChild(btnRefresh)
+  head.appendChild(btnSettings)
   head.appendChild(btnCollapse)
   head.appendChild(btnClose)
 
   var body = el('div', 'wb-body')
+  var content = el('div', 'wb-content')
   var kpiGrid = el('div', 'wb-kpis')
   var trendSec = el('div', 'wb-sec')
   var recentSec = el('div', 'wb-sec')
   var accountsSec = el('div', 'wb-sec')
   var schedulerSec = el('div', 'wb-sec')
-  body.appendChild(kpiGrid)
-  body.appendChild(trendSec)
-  body.appendChild(recentSec)
-  body.appendChild(accountsSec)
-  body.appendChild(schedulerSec)
+  content.appendChild(kpiGrid)
+  content.appendChild(trendSec)
+  content.appendChild(recentSec)
+  content.appendChild(accountsSec)
+  content.appendChild(schedulerSec)
+
+  var settingsView = el('div', 'wb-settings')
+  body.appendChild(content)
+  body.appendChild(settingsView)
 
   var foot = el('div', 'wb-foot')
   var footText = el('span', '', '正在读取…')
@@ -204,24 +277,134 @@
 
   /* --------------------------------------------------------------- geometry */
 
+  function viewportSize() {
+    return {
+      w: Math.max(1, window.innerWidth),
+      h: Math.max(1, window.innerHeight)
+    }
+  }
+
+  function winRect() {
+    var rect = win.getBoundingClientRect()
+    return { w: rect.width, h: rect.height, left: rect.left, top: rect.top }
+  }
+
+  function clampLeft(left, width) {
+    var vp = viewportSize()
+    return Math.max(0, Math.min(left, Math.max(0, vp.w - width)))
+  }
+
+  function clampTop(top, height) {
+    var vp = viewportSize()
+    return Math.max(0, Math.min(top, Math.max(0, vp.h - height)))
+  }
+
+  function markSnapped() {
+    win.classList.toggle('is-snapped', Boolean(state.dock && (state.dock.h || state.dock.v)))
+  }
+
+  /** Write an absolute position and remember it (plus the docked edges). */
+  function placeAt(left, top, dock, { persist = true } = {}) {
+    var rect = winRect()
+    var x = clampLeft(Math.round(left), rect.w)
+    var y = clampTop(Math.round(top), rect.h)
+    win.style.left = x + 'px'
+    win.style.top = y + 'px'
+    win.style.right = 'auto'
+    win.style.bottom = 'auto'
+    if (dock !== undefined) state.dock = dock
+    markSnapped()
+    if (persist) {
+      state.store.pos = { left: x, top: y }
+      state.store.dock = state.dock
+      saveStore()
+    }
+    return { left: x, top: y }
+  }
+
   function applyGeometry() {
     var pos = state.store.pos
     if (pos && typeof pos.left === 'number' && typeof pos.top === 'number') {
-      win.style.left = Math.round(pos.left) + 'px'
-      win.style.top = Math.round(pos.top) + 'px'
-      win.style.right = 'auto'
-      win.style.bottom = 'auto'
+      placeAt(pos.left, pos.top, state.store.dock || null, { persist: false })
     } else {
+      // Floating default: 18px inset from the bottom-right corner. It is *not*
+      // docked, so the snapped styling and the "当前位置" hint stay honest until
+      // the user actually drags the panel onto an edge.
       win.style.right = '18px'
       win.style.bottom = '18px'
       win.style.left = 'auto'
       win.style.top = 'auto'
+      state.dock = null
+      markSnapped()
     }
     if (state.collapsed) win.classList.add('collapsed')
     else win.classList.remove('collapsed')
     btnCollapse.textContent = state.collapsed ? '+' : '—'
     win.style.display = state.open ? 'flex' : 'none'
     pill.classList.toggle('show', !state.open)
+  }
+
+  /** Snap the upcoming position to an edge when it is inside the threshold. */
+  function snapPosition(left, top) {
+    var rect = winRect()
+    var vp = viewportSize()
+    var dock = { h: null, v: null }
+    if (state.prefs.snap === false) {
+      state.dock = null
+      markSnapped()
+      return { left: left, top: top }
+    }
+    var distance = clampNum(state.prefs.snapDistance, 0, 80, 24)
+    var maxLeft = Math.max(0, vp.w - rect.w)
+    var maxTop = Math.max(0, vp.h - rect.h)
+    if (left <= distance) {
+      left = 0
+      dock.h = 'left'
+    } else if (maxLeft - left <= distance) {
+      left = maxLeft
+      dock.h = 'right'
+    }
+    if (top <= distance) {
+      top = 0
+      dock.v = 'top'
+    } else if (maxTop - top <= distance) {
+      top = maxTop
+      dock.v = 'bottom'
+    }
+    state.dock = dock
+    return { left: left, top: top }
+  }
+
+  /** Keep the docked edges attached when the window is resized. */
+  function reapplyDock() {
+    if (!state.dock) {
+      markSnapped()
+      return
+    }
+    var rect = winRect()
+    var vp = viewportSize()
+    var pos = state.store.pos || { left: rect.left, top: rect.top }
+    var left = pos.left
+    var top = pos.top
+    if (state.dock.h === 'left') left = 0
+    else if (state.dock.h === 'right') left = vp.w - rect.w
+    if (state.dock.v === 'top') top = 0
+    else if (state.dock.v === 'bottom') top = vp.h - rect.h
+    placeAt(left, top, state.dock)
+  }
+
+  function dockTo(position) {
+    var rect = winRect()
+    var vp = viewportSize()
+    var left = rect.left
+    var top = rect.top
+    var dock = { h: null, v: null }
+    if (position === 'left-top') { left = 0; top = 0; dock = { h: 'left', v: 'top' } }
+    else if (position === 'right-top') { left = vp.w - rect.w; top = 0; dock = { h: 'right', v: 'top' } }
+    else if (position === 'left-bottom') { left = 0; top = vp.h - rect.h; dock = { h: 'left', v: 'bottom' } }
+    else if (position === 'right-bottom') { left = vp.w - rect.w; top = vp.h - rect.h; dock = { h: 'right', v: 'bottom' } }
+    else { left = (vp.w - rect.w) / 2; top = (vp.h - rect.h) / 2; dock = { h: null, v: null } }
+    placeAt(left, top, dock)
   }
 
   var drag = null
@@ -243,9 +426,9 @@
 
   head.addEventListener('pointermove', function (event) {
     if (!drag) return
-    var rect = win.getBoundingClientRect()
-    var left = Math.min(Math.max(0, event.clientX - drag.dx), Math.max(0, window.innerWidth - rect.width))
-    var top = Math.min(Math.max(0, event.clientY - drag.dy), Math.max(0, window.innerHeight - 40))
+    var rect = winRect()
+    var left = clampLeft(event.clientX - drag.dx, rect.w)
+    var top = clampTop(event.clientY - drag.dy, rect.h)
     win.style.left = Math.round(left) + 'px'
     win.style.top = Math.round(top) + 'px'
     win.style.right = 'auto'
@@ -255,11 +438,7 @@
 
   head.addEventListener('pointerup', function (event) {
     if (!drag) return
-    if (drag.moved) {
-      var rect = win.getBoundingClientRect()
-      state.store.pos = { left: rect.left, top: rect.top }
-      saveStore()
-    }
+    var moved = drag.moved
     drag = null
     win.classList.remove('is-dragging')
     try {
@@ -267,6 +446,20 @@
     } catch (error) {
       /* ignore */
     }
+    if (!moved) return
+    var rect = winRect()
+    var snapped = snapPosition(rect.left, rect.top)
+    placeAt(snapped.left, snapped.top, state.dock)
+  })
+
+  var resizeQueued = false
+  window.addEventListener('resize', function () {
+    if (resizeQueued) return
+    resizeQueued = true
+    window.requestAnimationFrame(function () {
+      resizeQueued = false
+      reapplyDock()
+    })
   })
 
   /* -------------------------------------------------------------- behaviour */
@@ -289,27 +482,336 @@
     state.store.collapsed = state.collapsed
     saveStore()
     applyGeometry()
+    if (!state.collapsed) reapplyDock()
   })
   btnRefresh.addEventListener('click', function () {
     void fetchSnapshot(true)
   })
   rangeSelect.addEventListener('change', function () {
-    state.range = rangeSelect.value
-    state.store.range = state.range
+    state.prefs.range = rangeSelect.value
+    state.store.range = state.prefs.range
     saveStore()
+    queueSave()
     void fetchSnapshot(true)
   })
+
+  function toggleSettings(force) {
+    state.settings = typeof force === 'boolean' ? force : !state.settings
+    win.classList.toggle('settings', state.settings)
+    btnSettings.classList.toggle('on', state.settings)
+    btnSettings.textContent = state.settings ? '←' : '⚙'
+    btnSettings.title = state.settings ? '返回看板' : '设置'
+    if (state.settings) {
+      renderSettings()
+      // The settings view can be taller than the data view; keep it on screen.
+      window.setTimeout(function () {
+        var rect = winRect()
+        placeAt(rect.left, rect.top)
+        reapplyDock()
+      }, 30)
+    }
+  }
+
+  btnSettings.addEventListener('click', function () {
+    toggleSettings()
+  })
+
+  /* --------------------------------------------------------------- settings */
+
+  function normalizePrefs(raw) {
+    var input = raw && typeof raw === 'object' ? raw : {}
+    var next = {
+      cards: Array.isArray(input.cards) ? input.cards.map(String) : state.prefs.cards,
+      panels: Array.isArray(input.panels) ? input.panels.map(String) : state.prefs.panels,
+      opacity: clampNum(input.opacity, 0.5, 1, state.prefs.opacity),
+      refreshMs: clampNum(input.refreshMs, 3000, 300000, state.prefs.refreshMs),
+      range: typeof input.range === 'string' && input.range ? input.range : state.prefs.range,
+      snap: input.snap === undefined ? state.prefs.snap : input.snap !== false,
+      snapDistance: clampNum(input.snapDistance, 0, 80, state.prefs.snapDistance)
+    }
+    return next
+  }
+
+  function applyVisualPrefs() {
+    win.style.setProperty('--wb-bg-a', String(clampNum(state.prefs.opacity, 0.5, 1, 0.94)))
+    restartPolling()
+    renderRanges()
+    markSnapped()
+  }
+
+  var saveTimer = null
+
+  function queueSave() {
+    if (saveTimer) window.clearTimeout(saveTimer)
+    saveTimer = window.setTimeout(function () {
+      saveTimer = null
+      void pushPrefs()
+    }, 400)
+  }
+
+  function pushPrefs() {
+    if (state.saving) {
+      queueSave()
+      return Promise.resolve()
+    }
+    state.saving = true
+    var payload = JSON.stringify(state.prefs)
+    return fetch(BASE + '/api/prefs', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      credentials: 'same-origin',
+      body: payload
+    })
+      .then(function (response) {
+        if (!response.ok) throw new Error('HTTP ' + response.status)
+        return response.json()
+      })
+      .then(function (result) {
+        if (result && result.prefs) state.prefs = normalizePrefs(result.prefs)
+        if (result && result.catalog) state.catalog = buildCatalog(result.catalog)
+        applyVisualPrefs()
+        renderSettings()
+        return fetchSnapshot(true, true)
+      })
+      .catch(function (error) {
+        footText.textContent = '设置保存失败: ' + ((error && error.message) || String(error))
+        footText.style.color = '#fca5a5'
+      })
+      .then(function () {
+        state.saving = false
+      })
+  }
+
+  function buildCatalog(raw) {
+    var input = raw && typeof raw === 'object' ? raw : {}
+    return {
+      kpis: Array.isArray(input.kpis) ? input.kpis : [],
+      panels: Array.isArray(input.panels) ? input.panels : [],
+      ranges: Array.isArray(input.ranges) && input.ranges.length ? input.ranges : RANGE_FALLBACK
+    }
+  }
+
+  function chip(id, label, checked, onToggle) {
+    var wrap = el('label', 'wb-chip' + (checked ? ' on' : ''))
+    var input = document.createElement('input')
+    input.type = 'checkbox'
+    input.checked = checked
+    input.setAttribute('data-id', id)
+    input.addEventListener('change', function () {
+      onToggle(input.checked)
+      wrap.classList.toggle('on', input.checked)
+    })
+    wrap.appendChild(input)
+    wrap.appendChild(el('span', '', label))
+    return wrap
+  }
+
+  function renderSettings() {
+    settingsView.innerHTML = ''
+
+    var headRow = el('div', 'wb-set-head')
+    var back = el('button', 'wb-btn', '← 返回')
+    back.addEventListener('click', function () {
+      toggleSettings(false)
+    })
+    headRow.appendChild(back)
+    headRow.appendChild(el('span', 'wb-title', '看板设置'))
+    settingsView.appendChild(headRow)
+
+    var cardsSec = el('div', 'wb-set-sec')
+    var cardsTitle = el('div', 'wb-set-title', 'KPI 卡片')
+    cardsTitle.appendChild(el('span', '', '共 ' + state.catalog.kpis.length + ' 项 · 点选即生效'))
+    cardsSec.appendChild(cardsTitle)
+    var cardChips = el('div', 'wb-chips')
+    for (var i = 0; i < state.catalog.kpis.length; i += 1) {
+      (function (entry) {
+        var checked = state.prefs.cards.indexOf(entry.id) !== -1
+        cardChips.appendChild(chip(entry.id, entry.label, checked, function (on) {
+          togglePrefEntry('cards', entry.id, on)
+        }))
+      })(state.catalog.kpis[i])
+    }
+    cardsSec.appendChild(cardChips)
+    settingsView.appendChild(cardsSec)
+
+    var panelSec = el('div', 'wb-set-sec')
+    var panelTitle = el('div', 'wb-set-title', '面板')
+    panelTitle.appendChild(el('span', '', '趋势 / 最近请求 / 账号 / 排程'))
+    panelSec.appendChild(panelTitle)
+    var panelChips = el('div', 'wb-chips')
+    for (var j = 0; j < state.catalog.panels.length; j += 1) {
+      (function (entry) {
+        var checked = state.prefs.panels.indexOf(entry.id) !== -1
+        panelChips.appendChild(chip(entry.id, entry.label, checked, function (on) {
+          togglePrefEntry('panels', entry.id, on)
+        }))
+      })(state.catalog.panels[j])
+    }
+    panelSec.appendChild(panelChips)
+    settingsView.appendChild(panelSec)
+
+    var lookSec = el('div', 'wb-set-sec')
+    lookSec.appendChild(el('div', 'wb-set-title', '外观'))
+    var opacityField = el('div', 'wb-field')
+    opacityField.appendChild(el('label', '', '不透明度'))
+    var opacityInput = document.createElement('input')
+    opacityInput.type = 'range'
+    opacityInput.min = '50'
+    opacityInput.max = '100'
+    opacityInput.step = '1'
+    opacityInput.value = String(Math.round(state.prefs.opacity * 100))
+    var opacityValue = el('span', 'val', Math.round(state.prefs.opacity * 100) + '%')
+    opacityInput.addEventListener('input', function () {
+      var value = clampNum(opacityInput.value, 50, 100, 94) / 100
+      state.prefs.opacity = value
+      opacityValue.textContent = Math.round(value * 100) + '%'
+      win.style.setProperty('--wb-bg-a', String(value))
+      queueSave()
+    })
+    opacityField.appendChild(opacityInput)
+    opacityField.appendChild(opacityValue)
+    lookSec.appendChild(opacityField)
+    settingsView.appendChild(lookSec)
+
+    var dataSec = el('div', 'wb-set-sec')
+    dataSec.appendChild(el('div', 'wb-set-title', '刷新'))
+    var refreshField = el('div', 'wb-field')
+    refreshField.appendChild(el('label', '', '间隔'))
+    var refreshSelect = document.createElement('select')
+    refreshSelect.className = 'wb-select'
+    for (var k = 0; k < REFRESH_CHOICES.length; k += 1) {
+      var choice = REFRESH_CHOICES[k]
+      var option = document.createElement('option')
+      option.value = String(choice.ms)
+      option.textContent = choice.label
+      if (Math.abs(choice.ms - state.prefs.refreshMs) < 1) option.selected = true
+      refreshSelect.appendChild(option)
+    }
+    refreshSelect.addEventListener('change', function () {
+      state.prefs.refreshMs = clampNum(refreshSelect.value, 3000, 300000, 10000)
+      restartPolling()
+      queueSave()
+    })
+    refreshField.appendChild(refreshSelect)
+    dataSec.appendChild(refreshField)
+    dataSec.appendChild(el('div', 'wb-hint', '后台自动刷新，页面隐藏时暂停'))
+    settingsView.appendChild(dataSec)
+
+    var snapSec = el('div', 'wb-set-sec')
+    snapSec.appendChild(el('div', 'wb-set-title', '贴边吸附'))
+    var snapChips = el('div', 'wb-chips')
+    snapChips.appendChild(chip('snap', '拖到边缘自动贴靠', state.prefs.snap, function (on) {
+      state.prefs.snap = on
+      if (on) {
+        var rect = winRect()
+        var snapped = snapPosition(rect.left, rect.top)
+        placeAt(snapped.left, snapped.top, state.dock)
+      } else {
+        state.dock = null
+        markSnapped()
+      }
+      renderSettings()
+      queueSave()
+    }))
+    snapSec.appendChild(snapChips)
+
+    var distanceField = el('div', 'wb-field')
+    distanceField.appendChild(el('label', '', '吸附距离'))
+    var distanceInput = document.createElement('input')
+    distanceInput.type = 'range'
+    distanceInput.min = '0'
+    distanceInput.max = '80'
+    distanceInput.step = '2'
+    distanceInput.value = String(Math.round(state.prefs.snapDistance))
+    distanceInput.disabled = !state.prefs.snap
+    var distanceValue = el('span', 'val', Math.round(state.prefs.snapDistance) + ' px')
+    distanceInput.addEventListener('input', function () {
+      state.prefs.snapDistance = clampNum(distanceInput.value, 0, 80, 24)
+      distanceValue.textContent = Math.round(state.prefs.snapDistance) + ' px'
+      queueSave()
+    })
+    distanceField.appendChild(distanceInput)
+    distanceField.appendChild(distanceValue)
+    snapSec.appendChild(distanceField)
+
+    var docks = el('div', 'wb-docks')
+    var dockDefs = [
+      { id: 'left-top', label: '左上' },
+      { id: 'right-top', label: '右上' },
+      { id: 'center', label: '居中' },
+      { id: 'left-bottom', label: '左下' },
+      { id: 'right-bottom', label: '右下' }
+    ]
+    var dockedLabel = state.dock
+      ? (state.dock.h || '-') + '/' + (state.dock.v || '-')
+      : '自由'
+    for (var d = 0; d < dockDefs.length; d += 1) {
+      (function (def) {
+        var button = el('button', 'wb-btn', def.label)
+        button.addEventListener('click', function () {
+          dockTo(def.id)
+          queueSave()
+          renderSettings()
+        })
+        docks.appendChild(button)
+      })(dockDefs[d])
+    }
+    snapSec.appendChild(docks)
+    snapSec.appendChild(el('div', 'wb-hint', '当前位置：' + dockedLabel))
+    settingsView.appendChild(snapSec)
+
+    var actions = el('div', 'wb-actions')
+    var resetBtn = el('button', 'wb-btn', '恢复默认')
+    resetBtn.addEventListener('click', function () {
+      var defaults = normalizePrefs({
+        cards: ['tokens', 'requests', 'speed', 'cache', 'cost', 'success'],
+        panels: ['trend', 'recent', 'accounts', 'scheduler'],
+        opacity: 0.94,
+        refreshMs: 10000,
+        range: 'today',
+        snap: true,
+        snapDistance: 24
+      })
+      state.prefs = defaults
+      state.store.range = defaults.range
+      saveStore()
+      applyVisualPrefs()
+      renderSettings()
+      queueSave()
+    })
+    actions.appendChild(resetBtn)
+    actions.appendChild(el('span', 'grow'))
+    var doneBtn = el('button', 'wb-btn on', '完成')
+    doneBtn.addEventListener('click', function () {
+      void pushPrefs().then(function () {
+        toggleSettings(false)
+      })
+    })
+    actions.appendChild(doneBtn)
+    settingsView.appendChild(actions)
+  }
+
+  function togglePrefEntry(key, id, on) {
+    var list = state.prefs[key].slice()
+    var index = list.indexOf(id)
+    if (on && index === -1) list.push(id)
+    if (!on && index !== -1) list.splice(index, 1)
+    state.prefs[key] = list
+    if (key === 'panels') render()
+    queueSave()
+  }
 
   /* ----------------------------------------------------------------- render */
 
   function renderRanges() {
     rangeSelect.innerHTML = ''
-    for (var i = 0; i < state.ranges.length; i += 1) {
-      var item = state.ranges[i]
+    var ranges = state.catalog.ranges
+    for (var i = 0; i < ranges.length; i += 1) {
+      var item = ranges[i]
       var option = document.createElement('option')
       option.value = item.id
       option.textContent = item.label
-      if (item.id === state.range) option.selected = true
+      if (item.id === state.prefs.range) option.selected = true
       rangeSelect.appendChild(option)
     }
   }
@@ -333,7 +835,7 @@
 
   function renderTrend(data) {
     trendSec.innerHTML = ''
-    if (data && data.panels && data.panels.indexOf('trend') === -1) return
+    if (!panelShown('trend')) return
     var trend = (data && data.trend) || { points: [] }
     var headRow = el('div', 'wb-sec-head')
     headRow.appendChild(el('b', '', 'Token 时序'))
@@ -377,12 +879,12 @@
     stroke.setAttribute('stroke-linejoin', 'round')
     svg.appendChild(stroke)
     if (points.length === 1) {
-      var dot = document.createElementNS(svgNs, 'circle')
-      dot.setAttribute('cx', String(width / 2))
-      dot.setAttribute('cy', line[0].split(' ')[1])
-      dot.setAttribute('r', '2.6')
-      dot.setAttribute('fill', '#60a5fa')
-      svg.appendChild(dot)
+      var dotNode = document.createElementNS(svgNs, 'circle')
+      dotNode.setAttribute('cx', String(width / 2))
+      dotNode.setAttribute('cy', line[0].split(' ')[1])
+      dotNode.setAttribute('r', '2.6')
+      dotNode.setAttribute('fill', '#60a5fa')
+      svg.appendChild(dotNode)
     }
     box.appendChild(svg)
     var axis = el('div', 'wb-trend-axis')
@@ -395,7 +897,7 @@
 
   function renderRecent(data) {
     recentSec.innerHTML = ''
-    if (data && data.panels && data.panels.indexOf('recent') === -1) return
+    if (!panelShown('recent')) return
     var rows = (data && data.recent) || []
     var headRow = el('div', 'wb-sec-head')
     headRow.appendChild(el('b', '', '最近请求'))
@@ -417,7 +919,7 @@
 
   function renderAccounts(data) {
     accountsSec.innerHTML = ''
-    if (data && data.panels && data.panels.indexOf('accounts') === -1) return
+    if (!panelShown('accounts')) return
     var accounts = (data && data.accounts) || []
     var headRow = el('div', 'wb-sec-head')
     headRow.appendChild(el('b', '', '账号'))
@@ -442,7 +944,7 @@
 
   function renderScheduler(data) {
     schedulerSec.innerHTML = ''
-    if (data && data.panels && data.panels.indexOf('scheduler') === -1) return
+    if (!panelShown('scheduler')) return
     var scheduler = (data && data.scheduler) || {}
     if (!scheduler.enabled && !scheduler.modeText && !scheduler.message) return
     var headRow = el('div', 'wb-sec-head')
@@ -467,8 +969,6 @@
     var offline = !data || data.ok === false
     dot.classList.toggle('off', offline)
     title.textContent = 'WorkBuddy'
-    if (data && data.rangeLabel) sub.textContent = '· ' + data.rangeLabel
-    else sub.textContent = ''
     renderKpis(data)
     renderTrend(data)
     renderRecent(data)
@@ -483,7 +983,8 @@
       parts.push('tokens ' + (data.window.totalTokensText || '0'))
       parts.push(data.window.costText || '')
     }
-    footText.textContent = parts.filter(Boolean).join(' · ')
+    if (state.settings) footText.textContent = '设置会自动保存 · 点 ✓ 完成'
+    else footText.textContent = parts.filter(Boolean).join(' · ')
     footText.style.color = state.error || (data && data.error) ? '#fca5a5' : '#8199b8'
   }
 
@@ -493,7 +994,7 @@
     if (state.busy && !force) return Promise.resolve()
     state.busy = true
     if (!quiet) footText.textContent = '正在刷新…'
-    var url = BASE + '/api/snapshot?range=' + encodeURIComponent(state.range) + (force ? '&force=1' : '')
+    var url = BASE + '/api/snapshot?range=' + encodeURIComponent(state.prefs.range) + (force ? '&force=1' : '')
     return fetch(url, { headers: { accept: 'application/json' }, credentials: 'same-origin' })
       .then(function (response) {
         if (!response.ok) throw new Error('HTTP ' + response.status)
@@ -519,26 +1020,28 @@
       })
       .then(function (config) {
         if (!config) return
-        if (Array.isArray(config.ranges) && config.ranges.length) state.ranges = config.ranges
-        if (!state.store.range && config.range) state.range = config.range
-        if (config.refreshMs) state.refreshMs = Math.max(3000, Number(config.refreshMs) || state.refreshMs)
-        renderRanges()
+        if (config.catalog) state.catalog = buildCatalog(config.catalog)
+        if (config.prefs) state.prefs = normalizePrefs(config.prefs)
+        if (state.store.range) state.prefs.range = state.store.range
+        applyVisualPrefs()
+        renderSettings()
       })
       .catch(function () {
         /* keep fallbacks */
       })
   }
 
-  function startPolling() {
+  function restartPolling() {
     if (state.timer) window.clearInterval(state.timer)
     state.timer = window.setInterval(function () {
       if (document.hidden) return
       void fetchSnapshot(false, true)
-    }, state.refreshMs)
-    document.addEventListener('visibilitychange', function () {
-      if (!document.hidden) void fetchSnapshot(false, true)
-    })
+    }, clampNum(state.prefs.refreshMs, 3000, 300000, 10000))
   }
+
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) void fetchSnapshot(false, true)
+  })
 
   /* ------------------------------------------------------------------- boot */
 
@@ -552,10 +1055,9 @@
     applyGeometry()
     render()
     void loadConfig().then(function () {
-      renderRanges()
       return fetchSnapshot(false)
     })
-    startPolling()
+    restartPolling()
   }
 
   mount()

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { EventEmitter } from 'node:events'
 import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
@@ -8,6 +9,15 @@ import { apply, Config, normalizeConfig } from '../lib/index.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const fixtureCache = new Map()
+
+/**
+ * Build the config for one test. `prefsPath: ':memory:'` keeps tests away from
+ * the real `%LOCALAPPDATA%/dsh-workbuddy-dashboard/prefs.json`, which would
+ * otherwise make assertions depend on whatever was saved last.
+ */
+function testConfig(overrides = {}) {
+  return Object.assign({ baseUrl: 'http://gw.test:8788', prefsPath: ':memory:' }, overrides)
+}
 
 async function fixture(name) {
   if (!fixtureCache.has(name)) {
@@ -101,6 +111,27 @@ async function call(route, path, options) {
   return res
 }
 
+/** Request stub with a JSON body, enough for the prefs PUT handler. */
+function bodyRequest(method, path, body) {
+  const req = new EventEmitter()
+  req.method = method
+  req.url = path
+  req.headers = { host: '127.0.0.1:3080', 'content-type': 'application/json' }
+  req.destroy = () => {}
+  const text = body === undefined ? '' : JSON.stringify(body)
+  process.nextTick(() => {
+    if (text) req.emit('data', Buffer.from(text, 'utf8'))
+    req.emit('end')
+  })
+  return req
+}
+
+async function callWithBody(route, path, method, body) {
+  const res = fakeResponse()
+  await route.handler(bodyRequest(method, path, body), res)
+  return res
+}
+
 /** Install a fetch stub backed by the fixtures and return the call log. */
 async function installGatewayStub(overrides = {}) {
   const calls = []
@@ -173,13 +204,14 @@ test('Config schema is present when schemastery resolves', () => {
 test('plugin registers routes, tools and the index injection', async () => {
   const calls = await installGatewayStub()
   const { ctx, routes, listeners, tools, disposers } = createFakeCtx()
-  const app = apply(ctx, { baseUrl: 'http://gw.test:8788' })
+  const app = apply(ctx, testConfig())
   try {
     await app.getSnapshot('today', { force: true })
 
     assert.deepEqual([...routes.keys()].sort(), [
       '/workbuddy/api/config',
       '/workbuddy/api/health',
+      '/workbuddy/api/prefs',
       '/workbuddy/api/snapshot',
       '/workbuddy/panel.js',
     ])
@@ -227,7 +259,7 @@ test('plugin registers routes, tools and the index injection', async () => {
 test('snapshot route serves the dashboard document', async () => {
   await installGatewayStub()
   const { ctx, routes, disposers } = createFakeCtx()
-  const app = apply(ctx, { baseUrl: 'http://gw.test:8788' })
+  const app = apply(ctx, testConfig())
   try {
     await app.getSnapshot('today', { force: true })
     const res = await call(routes.get('/workbuddy/api/snapshot'), '/workbuddy/api/snapshot', { query: '?range=today' })
@@ -247,10 +279,65 @@ test('snapshot route serves the dashboard document', async () => {
   }
 })
 
+test('prefs route stores the view and rebuilds the snapshot', async () => {
+  await installGatewayStub()
+  const { ctx, routes, disposers } = createFakeCtx()
+  // :memory: keeps the test away from the real %LOCALAPPDATA% file.
+  const app = apply(ctx, testConfig())
+  try {
+    const initial = await call(routes.get('/workbuddy/api/prefs'), '/workbuddy/api/prefs')
+    assert.equal(initial.statusCode, 200)
+    const first = initial.json()
+    assert.deepEqual(first.prefs.cards, ['tokens', 'requests', 'speed', 'cache', 'cost', 'success'])
+    assert.deepEqual(first.prefs.panels, ['trend', 'recent', 'accounts', 'scheduler'])
+    assert.equal(first.prefs.snap, true)
+    assert.equal(first.catalog.kpis.length, 18)
+    assert.equal(first.catalog.panels.length, 4)
+
+    const updated = await callWithBody(routes.get('/workbuddy/api/prefs'), '/workbuddy/api/prefs', 'PUT', {
+      cards: ['cost', 'errors'],
+      panels: ['recent'],
+      opacity: 0.7,
+      refreshMs: 30000,
+      range: 'week',
+      snap: false,
+      snapDistance: 200,
+      nope: 'ignored',
+    })
+    assert.equal(updated.statusCode, 200)
+    const saved = updated.json()
+    assert.deepEqual(saved.prefs.cards, ['cost', 'errors'])
+    assert.deepEqual(saved.prefs.panels, ['recent'])
+    assert.equal(saved.prefs.opacity, 0.7)
+    assert.equal(saved.prefs.refreshMs, 30000)
+    assert.equal(saved.prefs.range, 'week')
+    assert.equal(saved.prefs.snap, false)
+    assert.equal(saved.prefs.snapDistance, 80, 'snap distance is clamped to 80')
+    assert.equal(Object.hasOwn(saved.prefs, 'nope'), false)
+
+    // The next snapshot renders exactly the saved cards/panels.
+    const snapshot = await call(routes.get('/workbuddy/api/snapshot'), '/workbuddy/api/snapshot', { query: '?force=1' })
+    const body = snapshot.json()
+    assert.equal(body.ok, true)
+    assert.deepEqual(body.kpis.map((kpi) => kpi.id), ['cost', 'errors'])
+    assert.deepEqual(body.panels, ['recent'])
+
+    const config = await call(routes.get('/workbuddy/api/config'), '/workbuddy/api/config')
+    assert.deepEqual(config.json().cards, ['cost', 'errors'])
+    assert.equal(config.json().opacity, 0.7)
+
+    const rejected = await callWithBody(routes.get('/workbuddy/api/prefs'), '/workbuddy/api/prefs', 'DELETE', {})
+    assert.equal(rejected.statusCode, 405)
+  } finally {
+    for (const dispose of disposers) dispose()
+    restoreFetch()
+  }
+})
+
 test('config route publishes the UI contract', async () => {
   await installGatewayStub()
   const { ctx, routes, disposers } = createFakeCtx()
-  const app = apply(ctx, { baseUrl: 'http://gw.test:8788', cards: ['tokens'], panels: ['recent'] })
+  const app = apply(ctx, testConfig({ cards: ['tokens'], panels: ['recent'] }))
   try {
     const res = await call(routes.get('/workbuddy/api/config'), '/workbuddy/api/config')
     const body = res.json()
@@ -268,7 +355,7 @@ test('config route publishes the UI contract', async () => {
 test('panel.js route serves the browser bundle', async () => {
   await installGatewayStub()
   const { ctx, routes, disposers } = createFakeCtx()
-  const app = apply(ctx, { baseUrl: 'http://gw.test:8788' })
+  const app = apply(ctx, testConfig())
   try {
     const res = await call(routes.get('/workbuddy/panel.js'), '/workbuddy/panel.js')
     assert.equal(res.statusCode, 200)
@@ -284,7 +371,7 @@ test('panel.js route serves the browser bundle', async () => {
 test('routes reject non-loopback, cross-site and cross-origin callers', async () => {
   await installGatewayStub()
   const { ctx, routes, disposers } = createFakeCtx()
-  const app = apply(ctx, { baseUrl: 'http://gw.test:8788' })
+  const app = apply(ctx, testConfig())
   try {
     const route = routes.get('/workbuddy/api/snapshot')
     const evil = await call(route, '/workbuddy/api/snapshot', { headers: { host: 'evil.example.com' } })
@@ -317,7 +404,7 @@ test('a rejected panel token triggers exactly one re-login', async () => {
     },
   })
   const { ctx, disposers } = createFakeCtx()
-  const app = apply(ctx, { baseUrl: 'http://gw.test:8788' })
+  const app = apply(ctx, testConfig())
   try {
     const snapshot = await app.getSnapshot('today', { force: true })
     assert.equal(snapshot.ok, true)
@@ -338,7 +425,7 @@ test('gateway outage yields an offline snapshot instead of throwing', async () =
     throw new Error('connect ECONNREFUSED 127.0.0.1:8788')
   }
   const { ctx, routes, disposers } = createFakeCtx()
-  const app = apply(ctx, { baseUrl: 'http://gw.test:8788' })
+  const app = apply(ctx, testConfig())
   try {
     const snapshot = await app.getSnapshot('today', { force: true })
     assert.equal(snapshot.ok, false)
@@ -362,7 +449,7 @@ test('gateway outage yields an offline snapshot instead of throwing', async () =
 test('status tool renders a readable report', async () => {
   await installGatewayStub()
   const { ctx, tools, disposers } = createFakeCtx()
-  apply(ctx, { baseUrl: 'http://gw.test:8788' })
+  apply(ctx, testConfig())
   try {
     const status = tools.find((tool) => tool.name === 'workbuddy_status')
     const text = await status.execute({ range: 'today' })
@@ -386,7 +473,7 @@ test('status tool renders a readable report', async () => {
 test('tapIndex fallback injects the panel exactly once', async () => {
   await installGatewayStub()
   const { ctx, taps, disposers } = createFakeCtx()
-  apply(ctx, { baseUrl: 'http://gw.test:8788' })
+  apply(ctx, testConfig())
   try {
     assert.equal(taps.length, 1)
     const html = '<html><body><div id="app"></div></body></html>'
@@ -404,7 +491,7 @@ test('tapIndex fallback injects the panel exactly once', async () => {
 test('showPanel=false disables injection but keeps the routes', async () => {
   await installGatewayStub()
   const { ctx, routes, listeners, taps, disposers } = createFakeCtx()
-  apply(ctx, { baseUrl: 'http://gw.test:8788', showPanel: false })
+  apply(ctx, testConfig({ showPanel: false }))
   try {
     assert.equal(listeners.has('webserver/index-inject'), false)
     assert.equal(taps.length, 0)

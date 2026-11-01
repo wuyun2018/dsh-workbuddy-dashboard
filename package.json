@@ -1,6 +1,6 @@
 {
   "name": "dsh-workbuddy-dashboard",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "WorkBuddy gateway dashboard for DeepSeek Harness: KPI cards, token trend, recent requests, accounts and scheduler as a floating in-app panel plus agent tools.",
   "type": "module",
   "main": "lib/index.js",
