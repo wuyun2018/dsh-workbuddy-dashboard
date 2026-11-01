@@ -1,0 +1,36 @@
+{
+  "window": {
+    "since": 1768406400,
+    "until": null
+  },
+  "realm": "all",
+  "usd_cny": 7.1,
+  "summary": {
+    "window": {
+      "requests": 42,
+      "errors": 0,
+      "prompt_tokens": 4179888,
+      "completion_tokens": 41888,
+      "reasoning_tokens": 18220,
+      "cached_tokens": 3975292,
+      "total_tokens": 4221776,
+      "credit": 12.4,
+      "ttft_sum": 50568,
+      "ttft_n": 42,
+      "speed_sum": 8761.2,
+      "speed_n": 42,
+      "elapsed_sum": 215040,
+      "elapsed_n": 42,
+      "cache_hit_pct": 95.1,
+      "reasoning_ratio": 43.5,
+      "ttft_ms_avg": 1204,
+      "speed_avg": 208.6,
+      "elapsed_ms_avg": 5120,
+      "cost_cny": 0.3411195
+    },
+    "all_time": {}
+  },
+  "accounts": [],
+  "models": [],
+  "keys": []
+}

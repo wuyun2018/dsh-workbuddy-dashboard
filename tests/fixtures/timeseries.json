@@ -1,0 +1,32 @@
+{
+  "ok": true,
+  "realm": "all",
+  "bucket_seconds": 3600,
+  "since": 1768406400,
+  "until": 1768438143,
+  "series": [
+    {
+      "at": 1768406400,
+      "requests": 8,
+      "errors": 0,
+      "prompt_tokens": 812346,
+      "completion_tokens": 9782,
+      "reasoning_tokens": 4106,
+      "cached_tokens": 764288,
+      "total_tokens": 822128,
+      "credit": 3.12
+    },
+    {
+      "at": 1768435200,
+      "requests": 34,
+      "errors": 0,
+      "prompt_tokens": 3367542,
+      "completion_tokens": 32106,
+      "reasoning_tokens": 14114,
+      "cached_tokens": 3211004,
+      "total_tokens": 3399648,
+      "credit": 9.28
+    }
+  ],
+  "credits": []
+}

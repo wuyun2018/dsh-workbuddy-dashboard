@@ -1,0 +1,12 @@
+node_modules/
+pnpm-lock.yaml
+pnpm-workspace.yaml
+
+# local verification output
+.shots/
+.harness.log
+*.log
+
+# never commit captured gateway payloads or profile links
+tests/fixtures-local/
+*.local.json

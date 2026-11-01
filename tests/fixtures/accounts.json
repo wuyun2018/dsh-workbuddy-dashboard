@@ -1,0 +1,41 @@
+{
+  "usable": 2,
+  "accounts": [
+    {
+      "uid": "acct-1",
+      "nickname": "demo-cn-1",
+      "realm": "cn",
+      "enabled": true,
+      "inCooldown": false,
+      "credits": {
+        "remain": 1199.94,
+        "size": 1200,
+        "used": 0.06
+      }
+    },
+    {
+      "uid": "acct-2",
+      "nickname": "demo-intl-2",
+      "realm": "intl",
+      "enabled": false,
+      "inCooldown": false,
+      "credits": {
+        "remain": 640,
+        "size": 730,
+        "used": 90
+      }
+    },
+    {
+      "uid": "acct-3",
+      "nickname": "demo-cn-3",
+      "realm": "cn",
+      "enabled": true,
+      "inCooldown": false,
+      "credits": {
+        "remain": 480.5,
+        "size": 500,
+        "used": 19.5
+      }
+    }
+  ]
+}

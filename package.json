@@ -1,0 +1,58 @@
+{
+  "name": "dsh-workbuddy-dashboard",
+  "version": "0.1.0",
+  "description": "WorkBuddy gateway dashboard for DeepSeek Harness: KPI cards, token trend, recent requests, accounts and scheduler as a floating in-app panel plus agent tools.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./panel.js": "./assets/panel.js"
+  },
+  "files": [
+    "lib",
+    "assets",
+    "docs",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "engines": {
+      "dsh": ">=0.2.0-rc.2"
+    }
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "cordis",
+    "workbuddy",
+    "dashboard",
+    "monitoring"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": "*",
+    "@deepseek-ai/schemastery": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    },
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "test": "node --test tests/unit.test.mjs tests/plugin.test.mjs",
+    "test:live": "node --test tests/live.test.mjs",
+    "harness": "node scripts/harness.mjs",
+    "harness:demo": "node scripts/harness.mjs --demo"
+  }
+}

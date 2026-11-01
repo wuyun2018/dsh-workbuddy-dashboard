@@ -1,0 +1,8 @@
+# dsh-workbuddy-dashboard — cordis patch layer
+#
+# Adds exactly one row: the host plugin itself. All behaviour (routes, index
+# injection, tools) lives in ./lib/index.js and is configured through the
+# plugin's schemastery Config, not through this patch.
+- insert:
+    - id: dsh-workbuddy-dashboard
+      name: dsh-workbuddy-dashboard

@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "realm": "cn",
+  "crypto_ok": true,
+  "accounts": 3,
+  "accounts_ready": 2,
+  "accounts_by_realm": {
+    "cn": 2,
+    "intl": 1
+  },
+  "accounts_ready_by_realm": {
+    "cn": 2,
+    "intl": 0
+  },
+  "api_key_required": true
+}
