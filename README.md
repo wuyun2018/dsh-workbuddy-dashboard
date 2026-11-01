@@ -11,10 +11,11 @@
 
 ## 特性
 
-- **悬浮面板**（右下角，可拖拽 / 折叠 / 关闭 / 换统计区间；窗口不够高时面板内部滚动）：KPI 卡片、Token 时序、最近请求、账号额度、排程状态，深色玻璃质感，跟随 5–10s 轮询刷新。
+- **悬浮面板**（右下角，可拖拽 / 折叠 / 关闭 / 换统计区间；窗口不够高时面板内部滚动）：KPI 卡片、Token 时序、最近请求、账号额度、排程状态，跟随 5–10s 轮询刷新。
+- **跟随界面配色**：面板不定义自己的主题，而是读取 DeepSeek Harness 的设计令牌（`--dsw-alias-*`）——深色/浅色切换、强调色、字体、圆角都跟界面一致，切换主题实时生效；取不到令牌时回落到内置的深/浅底色。
 - **贴边吸附**：把它拖到屏幕边缘附近（默认 24px 以内）就会自动贴靠并记住贴的是哪条边，窗口大小变化后重新贴回去；吸附距离 0–80px 可调，也可以一键贴到左上 / 右上 / 居中 / 左下 / 右下。
 - **面板内设置**（标题栏 ⚙）：KPI 卡片与四个面板的勾选、背景不透明度、刷新间隔、吸附开关与距离、贴靠按钮、恢复默认——改完即时生效并自动保存，不用改配置文件。
-- **18 个 KPI 指标可选**：tokens、请求数、生成速度、缓存命中、花费、成功率、prompt/completion/reasoning/cached tokens、TTFT、耗时、峰值吞吐、推理占比、错误数、额度、美元花费、就绪账号……默认展示 6 个。
+- **19 个 KPI 指标可选**：tokens、请求数、生成速度、缓存命中、花费、成功率、prompt/completion/reasoning/cached tokens、TTFT、耗时、峰值吞吐、推理占比、错误数、额度、美元花费、就绪账号、积分消耗……默认展示 7 个（含“积分消耗”）。
 - **4 个面板可开关**：Token 时序 / 最近请求 / 账号 / 排程，与 KPI 卡片一样按配置裁剪。
 - **三个模型工具**：`workbuddy_status`、`workbuddy_recent`、`workbuddy_accounts`，让 agent 直接回答“今天跑了多少 token / 最近哪几条失败 / 哪个号快没额度了”。
 - **偏好跨浏览器共享**：卡片、面板、不透明度、刷新间隔、区间、吸附设置存在 `%LOCALAPPDATA%\dsh-workbuddy-dashboard\prefs.json`，换浏览器或清掉 localStorage 也不会丢。
@@ -89,7 +90,7 @@ dsh plugin --profile web remove dsh-workbuddy-dashboard
 | `password` | `admin` | 面板口令，仅用于换 `X-Panel-Token`，不落盘、不写日志 |
 | `range` | `today` | 默认区间：`today` / `d3` / `week` / `month` / `d30` / `all` |
 | `refreshMs` | `10000` | 轮询间隔，范围 3000–300000 |
-| `cards` | 6 个默认卡 | KPI 指标 id 列表，见下方“指标库”（用户偏好保存过则以偏好为准） |
+| `cards` | 7 个默认卡 | KPI 指标 id 列表，见下方“指标库”（用户偏好保存过则以偏好为准） |
 | `panels` | 四个全开 | 面板 id：`trend` / `recent` / `accounts` / `scheduler` |
 | `showPanel` | `true` | 关掉后只保留路由与工具，不向页面注入面板 |
 | `panelOpen` | `true` | 面板初始展开 / 折叠 |
@@ -101,18 +102,21 @@ dsh plugin --profile web remove dsh-workbuddy-dashboard
 
 | 项 | 说明 |
 | --- | --- |
-| KPI 卡片 | 18 个指标点选即显示/隐藏（绿色勾选），至少留一个由你决定，空列表就是只显示面板 |
+| KPI 卡片 | 19 个指标点选即显示/隐藏（绿色勾选），至少留一个由你决定，空列表就是只显示面板 |
 | 面板 | Token 时序 / 最近请求 / 账号 / 排程 四个开关，关掉的面板不渲染也不占高度 |
 | 不透明度 | 50%–100% 拖杆，实时改背景 alpha（文字与数值始终不透明） |
+| 外观主题 | 不用选：颜色全部来自当前界面主题（`--dsw-alias-*`），切深色/浅色即时跟随 |
 | 刷新间隔 | 3 / 5 / 10 / 30 / 60 秒，改完立即重新排程轮询 |
 | 贴边吸附 | 开关 + 吸附距离 0–80px；下方五个按钮直接贴到 左上 / 右上 / 居中 / 左下 / 右下，并显示当前位置 |
-| 恢复默认 / 完成 | 恢复六卡四面板、0.94、10s、今日、吸附 24px；完成等价于收起设置视图 |
+| 恢复默认 / 完成 | 恢复默认七卡四面板、0.94、10s、今日、吸附 24px；完成等价于收起设置视图 |
 
 设置改动 400ms 防抖后 `PUT /workbuddy/api/prefs` 落盘，同时刷新服务端缓存，下一个快照按新选择重算。
 
 ### 指标库（`cards` 可用 id）
 
-`tokens` `requests` `speed` `cache` `cost` `success` `prompt_tokens` `completion_tokens` `reasoning_tokens` `cached_tokens` `ttft` `elapsed` `peak_throughput` `reasoning_ratio` `errors` `credit` `cost_usd` `accounts_ready`
+`tokens` `requests` `speed` `cache` `cost` `success` `prompt_tokens` `completion_tokens` `reasoning_tokens` `cached_tokens` `ttft` `elapsed` `peak_throughput` `reasoning_ratio` `errors` `credit` `credit_used` `cost_usd` `accounts_ready`
+
+`credit` 是账号池剩余积分，`credit_used` 是当前区间**已消耗**的积分（副标题给出剩余量），两者口径不同，可同时展示。
 
 ## 模型工具
 
@@ -147,7 +151,7 @@ dsh plugin --profile web remove dsh-workbuddy-dashboard
 ## 开发
 
 ```powershell
-npm test              # 单元 + 插件契约测试（30 项，无网络）
+npm test              # 单元 + 插件契约测试（31 项，无网络）
 npm run test:live     # 真实网关 smoke（5 项，网关不在线时自动 skip）
 npm run harness       # 本地验证页 http://127.0.0.1:4010/ ，连真实网关
 npm run harness:demo  # 同上，但用脱敏 fixtures，适合截图/演示

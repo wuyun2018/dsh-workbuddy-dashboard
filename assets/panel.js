@@ -90,7 +90,7 @@
   state.collapsed = state.store.collapsed === true
   if (state.store.range) state.prefs.range = state.store.range
   if (state.store.dock && typeof state.store.dock === 'object') state.dock = state.store.dock
-  if (!state.prefs.cards.length) state.prefs.cards = ['tokens', 'requests', 'speed', 'cache', 'cost', 'success']
+  if (!state.prefs.cards.length) state.prefs.cards = ['tokens', 'requests', 'speed', 'cache', 'cost', 'success', 'credit_used']
   if (!state.prefs.panels.length) state.prefs.panels = ['trend', 'recent', 'accounts', 'scheduler']
 
   /* ---------------------------------------------------------------- helpers */
@@ -121,99 +121,260 @@
     return state.prefs.panels.indexOf(id) !== -1
   }
 
+  /* ------------------------------------------------------------------ theme */
+
+  // The panel paints itself with the host design tokens (`--dsw-alias-*`, set by
+  // dsh-client-ui-theme on <body>) so it follows the app appearance instead of
+  // carrying a palette of its own. Custom properties inherit through the shadow
+  // boundary, but we resolve them to concrete values so the fallbacks also work
+  // when the page has no DSH tokens (standalone harness, tests).
+  var THEME_SLOTS = ['bg', 'bg2', 'fg', 'fg2', 'fg3', 'line', 'lineSoft', 'accent', 'data', 'ok', 'warn', 'bad']
+  var THEME_TOKENS = {
+    bg: '--dsw-alias-bg-base',
+    bg2: '--dsw-alias-bg-layer-1',
+    fg: '--dsw-alias-label-primary',
+    fg2: '--dsw-alias-label-secondary',
+    fg3: '--dsw-alias-label-tertiary',
+    line: '--dsw-alias-border-l2',
+    lineSoft: '--dsw-alias-border-l1',
+    accent: '--dsw-alias-brand-primary',
+    // In the dark theme `brand-primary` is plain white, so charts borrow the
+    // host link colour instead of painting everything in greyscale.
+    data: '--dsw-alias-link',
+    ok: '--dsw-alias-state-success-primary',
+    warn: '--dsw-alias-state-warn-primary',
+    bad: '--dsw-alias-state-error-primary',
+  }
+  var THEME_FALLBACK = {
+    dark: {
+      bg: '#151517', bg2: '#232324', fg: '#f9fafb', fg2: '#cfd3d6', fg3: '#adb2b8',
+      line: '#ffffff1f', lineSoft: '#ffffff0f', accent: '#f9fafb', data: '#7aaaff',
+      ok: '#22c55e', warn: '#f59e0b', bad: '#f25a5a',
+    },
+    light: {
+      bg: '#ffffff', bg2: '#f4f5f7', fg: '#1b1d21', fg2: '#4b5058', fg3: '#71767d',
+      line: '#00000014', lineSoft: '#0000000f', accent: '#3b82f6', data: '#3b82f6',
+      ok: '#16a34a', warn: '#d97706', bad: '#dc2626',
+    },
+  }
+  var colorProbe = null
+
+  function parseColor(value) {
+    if (!value) return null
+    try {
+      if (!colorProbe) colorProbe = document.createElement('canvas').getContext('2d')
+      colorProbe.fillStyle = '#000000'
+      colorProbe.fillStyle = value
+      var text = String(colorProbe.fillStyle)
+      if (text.charAt(0) === '#') {
+        if (text.length !== 7) return null
+        return { r: parseInt(text.slice(1, 3), 16), g: parseInt(text.slice(3, 5), 16), b: parseInt(text.slice(5, 7), 16), a: 1 }
+      }
+      var parts = text.replace(/^rgba?\(|\)$/g, '').split(',')
+      return { r: Number(parts[0]), g: Number(parts[1]), b: Number(parts[2]), a: parts.length > 3 ? Number(parts[3]) : 1 }
+    } catch (error) {
+      return null
+    }
+  }
+
+  function rgbTriple(value) {
+    var parsed = parseColor(value)
+    return parsed ? parsed.r + ',' + parsed.g + ',' + parsed.b : '255,255,255'
+  }
+
+  function tokenValue(name) {
+    try {
+      var bodyStyle = document.body ? getComputedStyle(document.body) : null
+      var rootStyle = getComputedStyle(document.documentElement)
+      var value = bodyStyle ? String(bodyStyle.getPropertyValue(name) || '').trim() : ''
+      if (!value) value = String(rootStyle.getPropertyValue(name) || '').trim()
+      return value
+    } catch (error) {
+      return ''
+    }
+  }
+
+  function prefersDark() {
+    try {
+      return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
+    } catch (error) {
+      return true
+    }
+  }
+
+  function resolveTheme() {
+    var raw = {}
+    var missing = 0
+    THEME_SLOTS.forEach(function (slot) {
+      var value = tokenValue(THEME_TOKENS[slot])
+      if (!value) missing += 1
+      raw[slot] = value
+    })
+    // Judge the appearance from the host background itself: DSH tokens already
+    // resolve per appearance, which is more reliable than the OS preference.
+    var bgColor = parseColor(raw.bg)
+    var dark = bgColor
+      ? (0.2126 * bgColor.r + 0.7152 * bgColor.g + 0.0722 * bgColor.b) / 255 < 0.5
+      : prefersDark()
+    var fallback = THEME_FALLBACK[dark ? 'dark' : 'light']
+    var palette = { dark: dark, usesTokens: missing < THEME_SLOTS.length }
+    THEME_SLOTS.forEach(function (slot) {
+      var parsed = parseColor(raw[slot])
+      palette[slot] = parsed ? raw[slot] : fallback[slot]
+      palette[slot + 'Rgb'] = parsed
+        ? parsed.r + ',' + parsed.g + ',' + parsed.b
+        : rgbTriple(fallback[slot])
+    })
+    palette.font = tokenValue('--dsw-font-family') || '"Segoe UI","Microsoft YaHei UI",system-ui,sans-serif'
+    return palette
+  }
+
+  function applyTheme() {
+    var palette = resolveTheme()
+    state.theme = palette
+    THEME_SLOTS.forEach(function (slot) {
+      host.style.setProperty('--wb-' + slot, palette[slot])
+      host.style.setProperty('--wb-' + slot + '-rgb', palette[slot + 'Rgb'])
+    })
+    host.style.setProperty('--wb-font', palette.font)
+    host.setAttribute('data-wb-appearance', palette.dark ? 'dark' : 'light')
+  }
+
+  function watchTheme() {
+    var scheduled = false
+    function schedule() {
+      if (scheduled) return
+      scheduled = true
+      var run = function () {
+        scheduled = false
+        try {
+          applyTheme()
+        } catch (error) {
+          /* a theme probe failure must never break the panel */
+        }
+      }
+      if (window.requestAnimationFrame) window.requestAnimationFrame(run)
+      else setTimeout(run, 16)
+    }
+    try {
+      var observer = new MutationObserver(schedule)
+      var options = { attributes: true, attributeFilter: ['data-ds-dark-theme', 'class', 'style', 'data-theme'] }
+      observer.observe(document.documentElement, options)
+      if (document.body) observer.observe(document.body, options)
+    } catch (error) {
+      /* MutationObserver is optional */
+    }
+    try {
+      if (window.matchMedia) {
+        var media = window.matchMedia('(prefers-color-scheme: dark)')
+        if (media.addEventListener) media.addEventListener('change', schedule)
+        else if (media.addListener) media.addListener(schedule)
+      }
+    } catch (error) {
+      /* matchMedia listener is optional */
+    }
+  }
+
   /* ------------------------------------------------------------------- view */
 
   var host = document.createElement('div')
   host.setAttribute('data-wb-dash', 'root')
   host.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483000;'
   var shadow = host.attachShadow ? host.attachShadow({ mode: 'open' }) : host
+  applyTheme()
+  watchTheme()
 
   var style = document.createElement('style')
   style.textContent = [
     ':host{all:initial}',
-    '*{box-sizing:border-box;font-family:"Segoe UI","Microsoft YaHei UI",system-ui,sans-serif}',
+    '*{box-sizing:border-box;font-family:var(--wb-font,"Segoe UI","Microsoft YaHei UI",system-ui,sans-serif)}',
     '.wb-win{position:absolute;width:344px;pointer-events:auto;border-radius:14px;display:flex;flex-direction:column;',
     'max-height:calc(100vh - 36px);',
-    'background:linear-gradient(160deg,rgba(18,26,38,var(--wb-bg-a)),rgba(11,17,26,var(--wb-bg-a)));',
-    'border:1px solid rgba(120,170,255,0.22);box-shadow:0 18px 48px rgba(0,0,0,0.45),0 0 0 1px rgba(255,255,255,0.03) inset;',
-    'color:#eef4ff;backdrop-filter:blur(14px) saturate(1.15);-webkit-backdrop-filter:blur(14px) saturate(1.15);',
+    'background:linear-gradient(160deg,rgba(var(--wb-bg-rgb),var(--wb-bg-a)),rgba(var(--wb-bg2-rgb),var(--wb-bg-a)));',
+    'border:1px solid var(--wb-line);box-shadow:0 18px 44px rgba(0,0,0,0.34),0 0 0 1px rgba(var(--wb-fg-rgb),0.04) inset;',
+    'color:var(--wb-fg);backdrop-filter:blur(14px) saturate(1.1);-webkit-backdrop-filter:blur(14px) saturate(1.1);',
     'overflow:hidden;transition:opacity .2s ease;font-size:12px;line-height:1.35}',
     '.wb-win.is-dragging{transition:none}',
-    '.wb-win.is-snapped{border-color:rgba(120,170,255,0.42);box-shadow:0 18px 48px rgba(0,0,0,0.45),0 0 0 1px rgba(120,170,255,0.28) inset}',
+    '.wb-win.is-snapped{border-color:rgba(var(--wb-fg-rgb),0.42);box-shadow:0 18px 44px rgba(0,0,0,0.34),0 0 0 1px rgba(var(--wb-fg-rgb),0.22) inset}',
     '.wb-win.settings .wb-content{display:none}',
     '.wb-win.settings .wb-settings{display:block}',
     '.wb-head{display:flex;align-items:center;gap:6px;padding:9px 10px 8px;cursor:move;flex:0 0 auto;',
-    'background:linear-gradient(180deg,rgba(90,150,255,0.16),rgba(90,150,255,0.02));',
-    'border-bottom:1px solid rgba(120,170,255,0.14)}',
-    '.wb-dot{width:8px;height:8px;border-radius:50%;background:#4ade80;box-shadow:0 0 8px rgba(74,222,128,0.85);flex:0 0 auto}',
-    '.wb-dot.off{background:#f87171;box-shadow:0 0 8px rgba(248,113,113,0.85)}',
+    'background:linear-gradient(180deg,rgba(var(--wb-fg-rgb),0.07),rgba(var(--wb-fg-rgb),0));',
+    'border-bottom:1px solid var(--wb-line-soft)}',
+    '.wb-dot{width:8px;height:8px;border-radius:50%;background:var(--wb-ok);box-shadow:0 0 8px rgba(var(--wb-ok-rgb),0.8);flex:0 0 auto}',
+    '.wb-dot.off{background:var(--wb-bad);box-shadow:0 0 8px rgba(var(--wb-bad-rgb),0.8)}',
     '.wb-title{font-size:12.5px;font-weight:600;letter-spacing:.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:0}',
     '.wb-spacer{flex:1 1 auto}',
-    '.wb-btn{pointer-events:auto;border:1px solid rgba(150,190,255,0.2);background:rgba(120,170,255,0.10);',
-    'color:#dce8ff;border-radius:7px;padding:3px 7px;font-size:11px;cursor:pointer;line-height:1.2}',
-    '.wb-btn:hover{background:rgba(120,170,255,0.22)}',
-    '.wb-btn.on{background:rgba(120,170,255,0.32);border-color:rgba(150,200,255,0.5)}',
+    '.wb-btn{pointer-events:auto;border:1px solid var(--wb-line);background:rgba(var(--wb-fg-rgb),0.06);',
+    'color:var(--wb-fg2);border-radius:7px;padding:3px 7px;font-size:11px;cursor:pointer;line-height:1.2}',
+    '.wb-btn:hover{background:rgba(var(--wb-fg-rgb),0.13)}',
+    '.wb-btn.on{background:rgba(var(--wb-accent-rgb),0.20);border-color:rgba(var(--wb-accent-rgb),0.55);color:var(--wb-fg)}',
     '.wb-win.settings .wb-head-tool{display:none}',
     '.wb-head .wb-btn{padding:3px 5px;font-size:10.5px;flex:0 0 auto}',
     '.wb-body{padding:10px;overflow-y:auto;overflow-x:hidden;flex:1 1 auto;min-height:0;scrollbar-width:thin}',
     '.wb-win.collapsed .wb-body{display:none}',
     '.wb-content{display:block}',
     '.wb-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}',
-    '.wb-kpi{background:rgba(120,170,255,0.075);border:1px solid rgba(140,180,255,0.12);border-radius:9px;padding:7px 8px;min-width:0}',
-    '.wb-kpi-label{font-size:10px;color:#9fb4d0;letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
-    '.wb-kpi-value{font-size:16px;font-weight:650;color:#ffffff;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
-    '.wb-kpi-sub{font-size:9.5px;color:#8fa6c2;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.wb-kpi{background:rgba(var(--wb-fg-rgb),0.05);border:1px solid var(--wb-line-soft);border-radius:9px;padding:7px 8px;min-width:0}',
+    '.wb-kpi-label{font-size:10px;color:var(--wb-fg3);letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.wb-kpi-value{font-size:16px;font-weight:650;color:var(--wb-fg);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.wb-kpi-sub{font-size:9.5px;color:var(--wb-fg3);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    // A lone card in the last row would leave two holes; let it use the width.
+    '.wb-kpi.wide{grid-column:span 3;display:flex;align-items:baseline;gap:8px}',
+    '.wb-kpi.wide .wb-kpi-label{flex:0 0 auto;margin:0}',
+    '.wb-kpi.wide .wb-kpi-value{flex:0 0 auto;margin:0;font-size:15px}',
+    '.wb-kpi.wide .wb-kpi-sub{flex:1 1 auto;margin:0;text-align:right;font-size:10px}',
     '.wb-sec{margin-top:9px}',
-    '.wb-sec-head{display:flex;align-items:center;gap:6px;font-size:10.5px;color:#9fb4d0;letter-spacing:.4px;margin-bottom:4px}',
-    '.wb-sec-head b{color:#cfe0ff;font-weight:600;font-size:11px}',
-    '.wb-trend{background:rgba(10,16,26,0.55);border:1px solid rgba(140,180,255,0.12);border-radius:9px;padding:6px 6px 2px}',
+    '.wb-sec-head{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--wb-fg3);letter-spacing:.4px;margin-bottom:4px}',
+    '.wb-sec-head b{color:var(--wb-fg2);font-weight:600;font-size:11px}',
+    '.wb-trend{background:rgba(var(--wb-fg-rgb),0.035);border:1px solid var(--wb-line-soft);border-radius:9px;padding:6px 6px 2px}',
     '.wb-trend svg{display:block;width:100%;height:56px}',
-    '.wb-trend-axis{display:flex;justify-content:space-between;color:#8199b8;font-size:9.5px;padding:0 1px 2px}',
-    '.wb-row{display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px dashed rgba(140,180,255,0.08)}',
+    '.wb-trend-axis{display:flex;justify-content:space-between;color:var(--wb-fg3);font-size:9.5px;padding:0 1px 2px}',
+    '.wb-row{display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px dashed var(--wb-line-soft)}',
     '.wb-row:last-child{border-bottom:0}',
-    '.wb-row .t{color:#9fb4d0;font-variant-numeric:tabular-nums;font-size:10.5px;flex:0 0 48px}',
-    '.wb-row .m{flex:1 1 auto;color:#e6efff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
-    '.wb-row .v{color:#bcd0ea;font-variant-numeric:tabular-nums;font-size:10.5px}',
-    '.wb-row .bad{color:#fca5a5}',
+    '.wb-row .t{color:var(--wb-fg3);font-variant-numeric:tabular-nums;font-size:10.5px;flex:0 0 48px}',
+    '.wb-row .m{flex:1 1 auto;color:var(--wb-fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.wb-row .v{color:var(--wb-fg2);font-variant-numeric:tabular-nums;font-size:10.5px}',
+    '.wb-row .bad{color:var(--wb-bad)}',
     '.wb-acc{display:flex;align-items:center;gap:6px;padding:2px 0}',
-    '.wb-acc .n{flex:1 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#e6efff}',
-    '.wb-tag{font-size:9px;padding:1px 5px;border-radius:6px;background:rgba(120,170,255,0.16);color:#b9d0f0}',
-    '.wb-tag.ok{background:rgba(74,222,128,0.18);color:#86efac}',
-    '.wb-tag.cool{background:rgba(251,191,36,0.18);color:#fcd34d}',
-    '.wb-tag.off{background:rgba(248,113,113,0.18);color:#fca5a5}',
-    '.wb-foot{display:flex;align-items:center;gap:6px;padding:6px 10px 8px;font-size:9.5px;color:#8199b8;border-top:1px solid rgba(120,170,255,0.1);flex:0 0 auto}',
+    '.wb-acc .n{flex:1 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--wb-fg)}',
+    '.wb-tag{font-size:9px;padding:1px 5px;border-radius:6px;background:rgba(var(--wb-fg-rgb),0.09);color:var(--wb-fg2)}',
+    '.wb-tag.ok{background:rgba(var(--wb-ok-rgb),0.16);color:var(--wb-ok)}',
+    '.wb-tag.cool{background:rgba(var(--wb-warn-rgb),0.16);color:var(--wb-warn)}',
+    '.wb-tag.off{background:rgba(var(--wb-bad-rgb),0.16);color:var(--wb-bad)}',
+    '.wb-foot{display:flex;align-items:center;gap:6px;padding:6px 10px 8px;font-size:9.5px;color:var(--wb-fg3);border-top:1px solid var(--wb-line-soft);flex:0 0 auto}',
     '.wb-pill{position:absolute;right:18px;bottom:18px;pointer-events:auto;width:42px;height:42px;border-radius:50%;',
-    'border:1px solid rgba(140,190,255,0.35);background:linear-gradient(150deg,#1b2c44,#101a28);color:#cfe2ff;',
-    'font-size:11px;font-weight:700;cursor:pointer;box-shadow:0 10px 26px rgba(0,0,0,0.45);display:none}',
+    'border:1px solid var(--wb-line);background:linear-gradient(150deg,rgba(var(--wb-bg2-rgb),0.98),rgba(var(--wb-bg-rgb),0.98));color:var(--wb-fg);',
+    'font-size:11px;font-weight:700;cursor:pointer;box-shadow:0 10px 26px rgba(0,0,0,0.38);display:none}',
     '.wb-pill.show{display:block}',
-    '.wb-select{pointer-events:auto;background:rgba(12,20,32,0.9);color:#dce8ff;border:1px solid rgba(150,190,255,0.24);',
+    '.wb-select{pointer-events:auto;background:var(--wb-bg2);color:var(--wb-fg);border:1px solid var(--wb-line);',
     'border-radius:7px;padding:2px 4px;font-size:10.5px}',
-    '.wb-empty{color:#8fa6c2;font-size:10.5px;padding:4px 0}',
-    '.wb-note{color:#93aac6;font-size:10px;line-height:1.45;margin:0 0 3px;display:-webkit-box;',
+    '.wb-empty{color:var(--wb-fg3);font-size:10.5px;padding:4px 0}',
+    '.wb-note{color:var(--wb-fg3);font-size:10px;line-height:1.45;margin:0 0 3px;display:-webkit-box;',
     '-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}',
     '.wb-settings{display:none}',
     '.wb-set-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}',
     '.wb-set-head .wb-title{font-size:12px}',
     '.wb-set-sec{margin-top:10px}',
     '.wb-set-sec:first-of-type{margin-top:0}',
-    '.wb-set-title{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#cfe0ff;margin-bottom:4px}',
-    '.wb-set-title span{font-size:9.5px;color:#8199b8;font-weight:400}',
+    '.wb-set-title{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:var(--wb-fg2);margin-bottom:4px}',
+    '.wb-set-title span{font-size:9.5px;color:var(--wb-fg3);font-weight:400}',
     '.wb-chips{display:flex;flex-wrap:wrap;gap:5px}',
     '.wb-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 7px;border-radius:7px;cursor:pointer;',
-    'border:1px solid rgba(140,180,255,0.16);background:rgba(120,170,255,0.06);color:#aebfd6;font-size:10.5px;user-select:none}',
-    '.wb-chip:hover{background:rgba(120,170,255,0.14)}',
-    '.wb-chip.on{background:rgba(120,170,255,0.22);border-color:rgba(150,200,255,0.45);color:#eaf2ff}',
-    '.wb-chip input{margin:0;accent-color:#60a5fa;width:11px;height:11px}',
-    '.wb-field{display:flex;align-items:center;gap:8px;margin:5px 0;color:#aebfd6;font-size:10.5px}',
-    '.wb-field label{flex:0 0 62px;color:#9fb4d0}',
-    '.wb-field input[type=range]{flex:1 1 auto;accent-color:#60a5fa;height:14px}',
-    '.wb-field .val{flex:0 0 46px;text-align:right;color:#dce8ff;font-variant-numeric:tabular-nums}',
-    '.wb-actions{display:flex;gap:6px;margin-top:12px;padding-top:8px;border-top:1px solid rgba(120,170,255,0.12)}',
+    'border:1px solid var(--wb-line-soft);background:rgba(var(--wb-fg-rgb),0.045);color:var(--wb-fg2);font-size:10.5px;user-select:none}',
+    '.wb-chip:hover{background:rgba(var(--wb-fg-rgb),0.10)}',
+    '.wb-chip.on{background:rgba(var(--wb-accent-rgb),0.20);border-color:rgba(var(--wb-accent-rgb),0.5);color:var(--wb-fg)}',
+    '.wb-chip input{margin:0;accent-color:var(--wb-data);width:11px;height:11px}',
+    '.wb-field{display:flex;align-items:center;gap:8px;margin:5px 0;color:var(--wb-fg2);font-size:10.5px}',
+    '.wb-field label{flex:0 0 62px;color:var(--wb-fg3)}',
+    '.wb-field input[type=range]{flex:1 1 auto;accent-color:var(--wb-data);height:14px}',
+    '.wb-field .val{flex:0 0 46px;text-align:right;color:var(--wb-fg);font-variant-numeric:tabular-nums}',
+    '.wb-actions{display:flex;gap:6px;margin-top:12px;padding-top:8px;border-top:1px solid var(--wb-line-soft)}',
     '.wb-actions .wb-btn{padding:4px 9px}',
     '.wb-actions .grow{flex:1 1 auto}',
     '.wb-docks{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;max-width:150px}',
     '.wb-docks .wb-btn{padding:3px 4px;font-size:10px}',
-    '.wb-hint{color:#7d92ad;font-size:9.5px;margin-top:3px}'
+    '.wb-hint{color:var(--wb-fg3);font-size:9.5px;margin-top:3px}'
   ].join('')
 
   var win = el('div', 'wb-win')
@@ -568,6 +729,7 @@
       })
       .then(function (result) {
         if (result && result.prefs) state.prefs = normalizePrefs(result.prefs)
+        if (result && result.defaults) state.defaults = result.defaults
         if (result && result.catalog) state.catalog = buildCatalog(result.catalog)
         applyVisualPrefs()
         renderSettings()
@@ -575,7 +737,7 @@
       })
       .catch(function (error) {
         footText.textContent = '设置保存失败: ' + ((error && error.message) || String(error))
-        footText.style.color = '#fca5a5'
+        footText.style.color = 'var(--wb-bad)'
       })
       .then(function () {
         state.saving = false
@@ -651,7 +813,13 @@
     settingsView.appendChild(panelSec)
 
     var lookSec = el('div', 'wb-set-sec')
-    lookSec.appendChild(el('div', 'wb-set-title', '外观'))
+    var lookTitle = el('div', 'wb-set-title', '外观')
+    // The palette is borrowed from the host UI, so say so instead of hinting a
+    // colour picker that does not exist.
+    lookTitle.appendChild(
+      el('span', '', '主题跟随界面 · ' + (state.theme && state.theme.dark ? '深色' : '浅色'))
+    )
+    lookSec.appendChild(lookTitle)
     var opacityField = el('div', 'wb-field')
     opacityField.appendChild(el('label', '', '不透明度'))
     var opacityInput = document.createElement('input')
@@ -763,14 +931,15 @@
     var actions = el('div', 'wb-actions')
     var resetBtn = el('button', 'wb-btn', '恢复默认')
     resetBtn.addEventListener('click', function () {
+      var base = state.defaults && typeof state.defaults === 'object' ? state.defaults : {}
       var defaults = normalizePrefs({
-        cards: ['tokens', 'requests', 'speed', 'cache', 'cost', 'success'],
-        panels: ['trend', 'recent', 'accounts', 'scheduler'],
-        opacity: 0.94,
-        refreshMs: 10000,
-        range: 'today',
-        snap: true,
-        snapDistance: 24
+        cards: base.cards || ['tokens', 'requests', 'speed', 'cache', 'cost', 'success', 'credit_used'],
+        panels: base.panels || ['trend', 'recent', 'accounts', 'scheduler'],
+        opacity: typeof base.opacity === 'number' ? base.opacity : 0.94,
+        refreshMs: typeof base.refreshMs === 'number' ? base.refreshMs : 10000,
+        range: base.range || 'today',
+        snap: typeof base.snap === 'boolean' ? base.snap : true,
+        snapDistance: typeof base.snapDistance === 'number' ? base.snapDistance : 24
       })
       state.prefs = defaults
       state.store.range = defaults.range
@@ -825,7 +994,8 @@
     }
     for (var i = 0; i < kpis.length; i += 1) {
       var kpi = kpis[i]
-      var card = el('div', 'wb-kpi')
+      var last = i === kpis.length - 1 && kpis.length % 3 === 1
+      var card = el('div', last ? 'wb-kpi wide' : 'wb-kpi')
       card.appendChild(el('div', 'wb-kpi-label', kpi.label))
       card.appendChild(el('div', 'wb-kpi-value', kpi.value))
       card.appendChild(el('div', 'wb-kpi-sub', kpi.sub))
@@ -868,13 +1038,14 @@
     if (points.length > 1) {
       var area = document.createElementNS(svgNs, 'path')
       area.setAttribute('d', line.join(' ') + ' L' + width.toFixed(1) + ' ' + height + ' L0 ' + height + ' Z')
-      area.setAttribute('fill', 'rgba(96,165,250,0.20)')
+      area.setAttribute('fill', 'var(--wb-data)')
+      area.setAttribute('fill-opacity', '0.18')
       svg.appendChild(area)
     }
     var stroke = document.createElementNS(svgNs, 'path')
     stroke.setAttribute('d', points.length > 1 ? line.join(' ') : '')
     stroke.setAttribute('fill', 'none')
-    stroke.setAttribute('stroke', '#60a5fa')
+    stroke.setAttribute('stroke', 'var(--wb-data)')
     stroke.setAttribute('stroke-width', '1.6')
     stroke.setAttribute('stroke-linejoin', 'round')
     svg.appendChild(stroke)
@@ -883,7 +1054,7 @@
       dotNode.setAttribute('cx', String(width / 2))
       dotNode.setAttribute('cy', line[0].split(' ')[1])
       dotNode.setAttribute('r', '2.6')
-      dotNode.setAttribute('fill', '#60a5fa')
+      dotNode.setAttribute('fill', 'var(--wb-data)')
       svg.appendChild(dotNode)
     }
     box.appendChild(svg)
@@ -985,7 +1156,7 @@
     }
     if (state.settings) footText.textContent = '设置会自动保存 · 点 ✓ 完成'
     else footText.textContent = parts.filter(Boolean).join(' · ')
-    footText.style.color = state.error || (data && data.error) ? '#fca5a5' : '#8199b8'
+    footText.style.color = state.error || (data && data.error) ? 'var(--wb-bad)' : 'var(--wb-fg3)'
   }
 
   /* ------------------------------------------------------------------ fetch */
@@ -1021,6 +1192,7 @@
       .then(function (config) {
         if (!config) return
         if (config.catalog) state.catalog = buildCatalog(config.catalog)
+        if (config.defaults) state.defaults = config.defaults
         if (config.prefs) state.prefs = normalizePrefs(config.prefs)
         if (state.store.range) state.prefs.range = state.store.range
         applyVisualPrefs()

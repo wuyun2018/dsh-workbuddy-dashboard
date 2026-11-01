@@ -13,6 +13,7 @@ import {
 } from '../lib/gateway.js'
 import { guardRequest, hostNameOf, parseTrustedHosts } from '../lib/guard.js'
 import {
+  applyMigrations,
   loadPrefs,
   mergePrefs,
   normalizePrefs,
@@ -217,11 +218,16 @@ test('buildSnapshot assembles the dashboard document from fixtures', async () =>
   assert.equal(tokens.sub, '16,962,732 tokens')
   const requests = snapshot.kpis.find((k) => k.id === 'requests')
   assert.equal(requests.value, '133')
+  // 积分消耗: consumed credits for the window, with the remaining pool as hint.
+  const creditUsed = snapshot.kpis.find((k) => k.id === 'credit_used')
+  assert.equal(creditUsed.label, '积分消耗')
+  assert.equal(creditUsed.value, '21.6')
+  assert.equal(creditUsed.sub, '剩 27K')
   assert.equal(snapshot.window.costText, '¥1.37')
   assert.equal(snapshot.trend.points.length, 2)
   assert.equal(snapshot.recent.length, 6)
   assert.equal(snapshot.accounts.length, 6)
-  assert.equal(snapshot.cards.length, 6)
+  assert.equal(snapshot.cards.length, DEFAULT_CARDS.length)
   assert.deepEqual(snapshot.panels, PANEL_IDS)
 })
 
@@ -343,4 +349,28 @@ test('mergePrefs applies a patch on top of the current selection', () => {
   assert.deepEqual(merged.panels, ['trend'], 'untouched keys survive the patch')
   assert.equal(merged.opacity, 0.9)
   assert.equal(merged.snapDistance, SNAP_MAX, 'out of range values are clamped, not rejected')
+})
+
+test('applyMigrations offers a new card to an older selection exactly once', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'wbdash-migrate-'))
+  const file = join(dir, 'prefs.json')
+  const old = normalizePrefs({ cards: ['tokens', 'cost'], panels: [] })
+  assert.equal(old.cards.includes('credit_used'), false)
+  savePrefs(file, old)
+
+  const loaded = loadPrefs(file)
+  const migrated = applyMigrations(file, loaded.prefs, loaded.stored)
+  assert.deepEqual(migrated.cards, ['tokens', 'cost', 'credit_used'])
+
+  const persisted = loadPrefs(file)
+  assert.deepEqual(persisted.prefs.cards, ['tokens', 'cost', 'credit_used'], 'the migration is saved')
+
+  // Once the user removes the card again, the marker keeps it removed.
+  savePrefs(file, normalizePrefs({ cards: ['tokens'], panels: [] }))
+  const again = loadPrefs(file)
+  const untouched = applyMigrations(file, again.prefs, again.stored)
+  assert.deepEqual(untouched.cards, ['tokens'], 'a deliberate removal is respected')
+
+  // A brand new install never triggers the migration path.
+  assert.deepEqual(applyMigrations('', normalizePrefs({ carts: [] }), false).cards, DEFAULT_CARDS)
 })

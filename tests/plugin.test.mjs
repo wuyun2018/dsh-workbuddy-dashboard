@@ -6,6 +6,7 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { apply, Config, normalizeConfig } from '../lib/index.js'
+import { DEFAULT_CARDS, KPI_IDS } from '../lib/snapshot.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const fixtureCache = new Map()
@@ -168,7 +169,7 @@ test('normalizeConfig applies defaults and validates ids', () => {
   assert.equal(defaults.baseUrl, 'http://127.0.0.1:8788')
   assert.equal(defaults.range, 'today')
   assert.equal(defaults.refreshMs, 10000)
-  assert.deepEqual(defaults.cards, ['tokens', 'requests', 'speed', 'cache', 'cost', 'success'])
+  assert.deepEqual(defaults.cards, DEFAULT_CARDS)
   assert.deepEqual(defaults.panels, ['trend', 'recent', 'accounts', 'scheduler'])
   assert.equal(defaults.showPanel, true)
   assert.equal(defaults.opacity, 0.94)
@@ -269,7 +270,7 @@ test('snapshot route serves the dashboard document', async () => {
     const body = res.json()
     assert.equal(body.ok, true)
     assert.equal(body.range, 'today')
-    assert.equal(body.kpis.length, 6)
+    assert.equal(body.kpis.length, DEFAULT_CARDS.length)
     assert.equal(body.health.realm, 'cn')
     assert.equal(body.recent.length, 6)
     assert.ok(body.trend.points.length >= 1)
@@ -288,10 +289,10 @@ test('prefs route stores the view and rebuilds the snapshot', async () => {
     const initial = await call(routes.get('/workbuddy/api/prefs'), '/workbuddy/api/prefs')
     assert.equal(initial.statusCode, 200)
     const first = initial.json()
-    assert.deepEqual(first.prefs.cards, ['tokens', 'requests', 'speed', 'cache', 'cost', 'success'])
+    assert.deepEqual(first.prefs.cards, DEFAULT_CARDS)
     assert.deepEqual(first.prefs.panels, ['trend', 'recent', 'accounts', 'scheduler'])
     assert.equal(first.prefs.snap, true)
-    assert.equal(first.catalog.kpis.length, 18)
+    assert.equal(first.catalog.kpis.length, KPI_IDS.length)
     assert.equal(first.catalog.panels.length, 4)
 
     const updated = await callWithBody(routes.get('/workbuddy/api/prefs'), '/workbuddy/api/prefs', 'PUT', {
@@ -430,7 +431,7 @@ test('gateway outage yields an offline snapshot instead of throwing', async () =
     const snapshot = await app.getSnapshot('today', { force: true })
     assert.equal(snapshot.ok, false)
     assert.match(snapshot.error, /ECONNREFUSED/)
-    assert.equal(snapshot.kpis.length, 6)
+    assert.equal(snapshot.kpis.length, DEFAULT_CARDS.length)
 
     const res = await call(routes.get('/workbuddy/api/snapshot'), '/workbuddy/api/snapshot')
     assert.equal(res.statusCode, 200)

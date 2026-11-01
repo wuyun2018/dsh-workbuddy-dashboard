@@ -115,6 +115,14 @@ function renderIndex() {
     '<title>WorkBuddy dashboard harness</title>',
     '<style>',
     'html,body{margin:0;height:100%;background:#0b1017;color:#e8eefc;font-family:"Segoe UI","Microsoft YaHei UI",system-ui,sans-serif}',
+    // The panel borrows the host palette; mirror the DSH dark tokens here so the
+    // harness previews the same colours the real app shows.
+    'body{--dsw-alias-bg-base:#151517;--dsw-alias-bg-layer-1:#232324;--dsw-alias-bg-layer-2:#2c2c2e;'
+      + '--dsw-alias-label-primary:#f9fafb;--dsw-alias-label-secondary:#cfd3d6;--dsw-alias-label-tertiary:#adb2b8;'
+      + '--dsw-alias-border-l1:#ffffff0f;--dsw-alias-border-l2:#ffffff1f;--dsw-alias-brand-primary:#f9fafb;'
+      + '--dsw-alias-state-success-primary:#22c55e;--dsw-alias-state-warn-primary:#f59e0b;'
+      + '--dsw-alias-state-error-primary:#f25a5a;'
+      + '--dsw-font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}',
     '.stage{height:100%;display:flex;align-items:center;justify-content:center;',
     'background:radial-gradient(1200px 600px at 70% 10%,rgba(56,110,190,0.30),transparent 60%),',
     'radial-gradient(900px 500px at 20% 90%,rgba(120,80,200,0.24),transparent 65%)}',
@@ -123,7 +131,7 @@ function renderIndex() {
     'p{margin:0;color:#8fa6c2;font-size:12px}',
     '</style>',
     '</head>',
-    '<body>',
+    '<body data-ds-dark-theme>',
     '<div class="stage"><div class="card"><h1>WorkBuddy 数据看板 · 本地验证页</h1>',
     '<p>右下方是插件注入的悬浮面板（dsh-workbuddy-dashboard），数据来自真实网关。</p></div></div>',
     markup,
