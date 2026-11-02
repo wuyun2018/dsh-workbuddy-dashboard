@@ -9,6 +9,7 @@
  * runtime; it is only used to produce documentation images.
  */
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -30,10 +31,23 @@ const waitMs = Number(flag('wait', '6000'))
 const [width, height] = flag('size', '1440x900').split('x').map(Number)
 const scale = Number(flag('scale', '1'))
 const port = 9333 + Math.floor(Math.random() * 200)
-const edgePath = process.env.EDGE_PATH || 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'
+// Any Chromium build will do; `EDGE_PATH` wins, otherwise the usual install spots.
+const browserPath = [
+  process.env.EDGE_PATH,
+  'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+  'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+  '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  '/usr/bin/microsoft-edge',
+  '/usr/bin/google-chrome',
+].filter(Boolean).find((candidate) => existsSync(candidate))
+if (!browserPath) {
+  console.error('no Chromium-based browser found; set EDGE_PATH to its executable')
+  process.exit(2)
+}
 const profile = await mkdtemp(join(tmpdir(), 'wb-cdp-'))
 
-const child = spawn(edgePath, [
+const child = spawn(browserPath, [
   '--headless=new',
   '--disable-gpu',
   '--no-first-run',

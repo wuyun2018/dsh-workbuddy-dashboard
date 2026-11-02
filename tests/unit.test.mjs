@@ -11,7 +11,8 @@ import {
   rangeQuery,
   RANGES,
 } from '../lib/gateway.js'
-import { guardRequest, hostNameOf, parseTrustedHosts } from '../lib/guard.js'
+import { guardRequest, hostNameOf, isLoopbackAddress, parseTrustedHosts } from '../lib/guard.js'
+import { scrubErrorText, serializeForScript } from '../lib/index.js'
 import {
   ANCHORS,
   applyMigrations,
@@ -126,6 +127,75 @@ test('request guard only trusts loopback and explicit hosts', () => {
     guardRequest({ headers: { host: '127.0.0.1:3080', origin: 'http://127.0.0.1:3080' } }).ok,
     true,
   )
+})
+
+test('request guard rejects wildcard binds, repeated hosts and remote peers', () => {
+  // 0.0.0.0 / [::] are bind addresses, not identities: they prove nothing.
+  assert.equal(guardRequest({ headers: { host: '0.0.0.0:3080' } }).ok, false)
+  assert.equal(guardRequest({ headers: { host: '[::]:3080' } }).ok, false)
+
+  // A repeated Host header arrives comma joined; it must not be read as "127.0.0.1".
+  assert.equal(guardRequest({ headers: { host: '127.0.0.1:3080, evil.test' } }).ok, false)
+  assert.equal(guardRequest({ headers: { host: '127.0.0.1:3080 evil.test' } }).ok, false)
+
+  // A dotted quad prefix does not make a host name loopback.
+  assert.equal(guardRequest({ headers: { host: '127.0.0.1.evil.com' } }).ok, false)
+  assert.equal(guardRequest({ headers: { host: '127.0.0.1.:3080' } }).ok, false)
+
+  // Loopback spellings that used to be false negatives now pass.
+  assert.equal(guardRequest({ headers: { host: '::1' } }).ok, true)
+  assert.equal(guardRequest({ headers: { host: '[0:0:0:0:0:0:0:1]:3080' } }).ok, true)
+  assert.equal(guardRequest({ headers: { host: '127.0.0.2:3080' } }).ok, true)
+
+  // Host and Origin are client controlled, so the TCP peer is checked too.
+  const remote = guardRequest({
+    headers: { host: '127.0.0.1:3080' },
+    socket: { remoteAddress: '192.168.1.9' },
+  })
+  assert.equal(remote.ok, false)
+  assert.match(remote.reason, /non-loopback peer/)
+  assert.equal(
+    guardRequest({
+      headers: { host: '127.0.0.1:3080' },
+      socket: { remoteAddress: '::ffff:127.0.0.1' },
+    }).ok,
+    true,
+  )
+  assert.equal(
+    guardRequest({
+      headers: { host: '192.168.1.5:3080' },
+      socket: { remoteAddress: '192.168.1.9' },
+    }, { trustedHosts: ['192.168.1.5'] }).ok,
+    true,
+    'trustedHosts is the explicit opt-in for LAN access',
+  )
+})
+
+/* ------------------------------------------------- injection and error text */
+
+test('boot payload cannot break out of the inline script', () => {
+  const payload = { cards: ['</script><img src=x onerror=alert(1)>'], range: 'today' }
+  const script = serializeForScript(payload)
+  assert.equal(script.includes('</script>'), false, 'a closing tag must not survive')
+  assert.equal(script.includes('<'), false, 'every `<` is escaped')
+  assert.deepEqual(JSON.parse(script), payload, 'the payload round-trips unchanged')
+
+  const separators = serializeForScript({ note: 'a\u2028b\u2029c' })
+  assert.equal(separators.includes('\u2028'), false, 'U+2028 is escaped for JS string literals')
+  assert.equal(separators.includes('\u2029'), false, 'U+2029 is escaped for JS string literals')
+  assert.equal(JSON.parse(separators).note, 'a\u2028b\u2029c')
+})
+
+test('error messages hand to HTTP clients carry no absolute paths', () => {
+  assert.equal(
+    scrubErrorText("ENOENT: no such file or directory, open 'C:\\Users\\someone\\app\\assets\\panel.js'"),
+    "ENOENT: no such file or directory, open '<path>'",
+  )
+  assert.equal(scrubErrorText('cannot read /home/user/app/panel.js'), 'cannot read <path>')
+  assert.equal(scrubErrorText('unexpected token in JSON at position 3'), 'unexpected token in JSON at position 3')
+  assert.equal(scrubErrorText('x'.repeat(500)).length, 200, 'long messages are truncated')
+  assert.ok(scrubErrorText('x'.repeat(500)).endsWith('...'))
+  assert.equal(scrubErrorText(null), '')
 })
 
 /* ---------------------------------------------------------------- snapshot */

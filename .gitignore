@@ -10,3 +10,10 @@ pnpm-workspace.yaml
 # never commit captured gateway payloads or profile links
 tests/fixtures-local/
 *.local.json
+
+# audit notes stay local: they quote absolute paths and raw command output
+review/
+
+# runtime view state and its atomic-write leftovers
+prefs.json
+*.tmp-*

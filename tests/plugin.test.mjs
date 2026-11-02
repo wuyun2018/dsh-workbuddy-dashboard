@@ -342,6 +342,15 @@ test('prefs route stores the view and rebuilds the snapshot', async () => {
 
     const rejected = await callWithBody(routes.get('/workbuddy/api/prefs'), '/workbuddy/api/prefs', 'DELETE', {})
     assert.equal(rejected.statusCode, 405)
+
+    const posted = await callWithBody(routes.get('/workbuddy/api/prefs'), '/workbuddy/api/prefs', 'POST', { opacity: 0.9 })
+    assert.equal(posted.statusCode, 405, 'only PUT may write preferences')
+
+    const plain = bodyRequest('PUT', '/workbuddy/api/prefs', { opacity: 0.9 })
+    plain.headers['content-type'] = 'text/plain'
+    const unsupported = fakeResponse()
+    await routes.get('/workbuddy/api/prefs').handler(plain, unsupported)
+    assert.equal(unsupported.statusCode, 415, 'a non-JSON body is refused')
   } finally {
     for (const dispose of disposers) dispose()
     restoreFetch()
