@@ -86,6 +86,7 @@ function fakeRequest(path, { query = '', headers = {} } = {}) {
   return {
     url: path + query,
     headers: { host: '127.0.0.1:3080', ...headers },
+    socket: { remoteAddress: '127.0.0.1' },
   }
 }
 
@@ -118,6 +119,7 @@ function bodyRequest(method, path, body) {
   req.method = method
   req.url = path
   req.headers = { host: '127.0.0.1:3080', 'content-type': 'application/json' }
+  req.socket = { remoteAddress: '127.0.0.1' }
   req.destroy = () => {}
   const text = body === undefined ? '' : JSON.stringify(body)
   process.nextTick(() => {
@@ -431,7 +433,8 @@ test('a rejected panel token triggers exactly one re-login', async () => {
   try {
     const snapshot = await app.getSnapshot('today', { force: true })
     assert.equal(snapshot.ok, true)
-    assert.equal(snapshot.window.requests, 133, 'the retried analytics payload is used')
+    const expected = (await fixture('analytics.json')).summary.window.requests
+    assert.equal(snapshot.window.requests, expected, 'the retried analytics payload is used')
     const logins = calls.filter((call) => call.base === '/panel/login')
     assert.equal(logins.length, 2, 'initial login + one re-login')
     const analyticsCalls = calls.filter((call) => call.base === '/usage/analytics')

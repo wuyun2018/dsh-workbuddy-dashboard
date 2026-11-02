@@ -36,6 +36,7 @@ import {
   trimSeries,
 } from '../lib/snapshot.js'
 import {
+  fmt1,
   fmtCompact,
   fmtClock,
   fmtInt,
@@ -103,49 +104,51 @@ test('range query strings cover presets and explicit windows', () => {
 /* ------------------------------------------------------------------- guard */
 
 test('request guard only trusts loopback and explicit hosts', () => {
+  const local = { remoteAddress: '127.0.0.1' }
   assert.deepEqual(parseTrustedHosts('a.local, b.local;c.local'), ['a.local', 'b.local', 'c.local'])
   assert.equal(hostNameOf('127.0.0.1:3080'), '127.0.0.1')
   assert.equal(hostNameOf('[::1]:3080'), '[::1]')
 
-  assert.equal(guardRequest({ headers: { host: '127.0.0.1:3080' } }).ok, true)
-  assert.equal(guardRequest({ headers: { host: 'localhost:3080' } }).ok, true)
-  assert.equal(guardRequest({ headers: {} }).ok, false)
-  assert.equal(guardRequest({ headers: { host: 'evil.example.com' } }).ok, false)
+  assert.equal(guardRequest({ headers: { host: '127.0.0.1:3080' }, socket: local }).ok, true)
+  assert.equal(guardRequest({ headers: { host: 'localhost:3080' }, socket: local }).ok, true)
+  assert.equal(guardRequest({ headers: {}, socket: local }).ok, false)
+  assert.equal(guardRequest({ headers: { host: 'evil.example.com' }, socket: local }).ok, false)
   assert.equal(
-    guardRequest({ headers: { host: 'evil.example.com' } }, { trustedHosts: ['evil.example.com'] }).ok,
+    guardRequest({ headers: { host: 'evil.example.com' }, socket: local }, { trustedHosts: ['evil.example.com'] }).ok,
     true,
   )
 
-  const crossSite = guardRequest({ headers: { host: '127.0.0.1:3080', 'sec-fetch-site': 'cross-site' } })
+  const crossSite = guardRequest({ headers: { host: '127.0.0.1:3080', 'sec-fetch-site': 'cross-site' }, socket: local })
   assert.equal(crossSite.ok, false)
   assert.match(crossSite.reason, /cross-site/)
 
-  const crossOrigin = guardRequest({ headers: { host: '127.0.0.1:3080', origin: 'http://evil.test' } })
+  const crossOrigin = guardRequest({ headers: { host: '127.0.0.1:3080', origin: 'http://evil.test' }, socket: local })
   assert.equal(crossOrigin.ok, false)
 
   assert.equal(
-    guardRequest({ headers: { host: '127.0.0.1:3080', origin: 'http://127.0.0.1:3080' } }).ok,
+    guardRequest({ headers: { host: '127.0.0.1:3080', origin: 'http://127.0.0.1:3080' }, socket: local }).ok,
     true,
   )
 })
 
 test('request guard rejects wildcard binds, repeated hosts and remote peers', () => {
+  const local = { remoteAddress: '127.0.0.1' }
   // 0.0.0.0 / [::] are bind addresses, not identities: they prove nothing.
-  assert.equal(guardRequest({ headers: { host: '0.0.0.0:3080' } }).ok, false)
-  assert.equal(guardRequest({ headers: { host: '[::]:3080' } }).ok, false)
+  assert.equal(guardRequest({ headers: { host: '0.0.0.0:3080' }, socket: local }).ok, false)
+  assert.equal(guardRequest({ headers: { host: '[::]:3080' }, socket: local }).ok, false)
 
   // A repeated Host header arrives comma joined; it must not be read as "127.0.0.1".
-  assert.equal(guardRequest({ headers: { host: '127.0.0.1:3080, evil.test' } }).ok, false)
-  assert.equal(guardRequest({ headers: { host: '127.0.0.1:3080 evil.test' } }).ok, false)
+  assert.equal(guardRequest({ headers: { host: '127.0.0.1:3080, evil.test' }, socket: local }).ok, false)
+  assert.equal(guardRequest({ headers: { host: '127.0.0.1:3080 evil.test' }, socket: local }).ok, false)
 
   // A dotted quad prefix does not make a host name loopback.
-  assert.equal(guardRequest({ headers: { host: '127.0.0.1.evil.com' } }).ok, false)
-  assert.equal(guardRequest({ headers: { host: '127.0.0.1.:3080' } }).ok, false)
+  assert.equal(guardRequest({ headers: { host: '127.0.0.1.evil.com' }, socket: local }).ok, false)
+  assert.equal(guardRequest({ headers: { host: '127.0.0.1.:3080' }, socket: local }).ok, false)
 
   // Loopback spellings that used to be false negatives now pass.
-  assert.equal(guardRequest({ headers: { host: '::1' } }).ok, true)
-  assert.equal(guardRequest({ headers: { host: '[0:0:0:0:0:0:0:1]:3080' } }).ok, true)
-  assert.equal(guardRequest({ headers: { host: '127.0.0.2:3080' } }).ok, true)
+  assert.equal(guardRequest({ headers: { host: '::1' }, socket: local }).ok, true)
+  assert.equal(guardRequest({ headers: { host: '[0:0:0:0:0:0:0:1]:3080' }, socket: local }).ok, true)
+  assert.equal(guardRequest({ headers: { host: '127.0.0.2:3080' }, socket: local }).ok, true)
 
   // Host and Origin are client controlled, so the TCP peer is checked too.
   const remote = guardRequest({
@@ -161,13 +164,37 @@ test('request guard rejects wildcard binds, repeated hosts and remote peers', ()
     }).ok,
     true,
   )
+})
+
+test('a LAN peer cannot borrow a loopback host name', () => {
+  // Configuring a LAN name must not hand every machine on the network the right
+  // to send `Host: 127.0.0.1` and skip the peer check.
+  const borrowed = guardRequest(
+    { headers: { host: '127.0.0.1:3080' }, socket: { remoteAddress: '10.0.0.5' } },
+    { trustedHosts: ['lanbox'] },
+  )
+  assert.equal(borrowed.ok, false)
+  assert.match(borrowed.reason, /non-loopback peer/)
+
+  // The configured name itself stays usable from the LAN.
   assert.equal(
-    guardRequest({
-      headers: { host: '192.168.1.5:3080' },
-      socket: { remoteAddress: '192.168.1.9' },
-    }, { trustedHosts: ['192.168.1.5'] }).ok,
+    guardRequest(
+      { headers: { host: 'lanbox:3080' }, socket: { remoteAddress: '10.0.0.5' } },
+      { trustedHosts: ['lanbox'] },
+    ).ok,
     true,
-    'trustedHosts is the explicit opt-in for LAN access',
+  )
+})
+
+test('request guard fails closed when the peer address is unknown', () => {
+  const missing = guardRequest({ headers: { host: '127.0.0.1:3080' } })
+  assert.equal(missing.ok, false)
+  assert.match(missing.reason, /peer address unavailable/)
+  assert.equal(guardRequest({ headers: { host: '127.0.0.1:3080' } }, { peerAddress: '127.0.0.1' }).ok, true)
+  // A legacy `connection` object is still recognised.
+  assert.equal(
+    guardRequest({ headers: { host: 'localhost:3080' }, connection: { remoteAddress: '127.0.0.1' } }).ok,
+    true,
   )
 })
 
@@ -190,6 +217,15 @@ test('error messages hand to HTTP clients carry no absolute paths', () => {
   assert.equal(
     scrubErrorText("ENOENT: no such file or directory, open 'C:\\Users\\someone\\app\\assets\\panel.js'"),
     "ENOENT: no such file or directory, open '<path>'",
+  )
+  // A path containing spaces must be replaced whole, not up to the first space.
+  assert.equal(
+    scrubErrorText("ENOENT: open 'C:\\Program Files (x86)\\Microsoft\\Edge\\msedge.exe'"),
+    "ENOENT: open '<path>'",
+  )
+  assert.equal(
+    scrubErrorText('cannot spawn C:\\Program Files\\nodejs\\node.exe: denied'),
+    'cannot spawn <path>: denied',
   )
   assert.equal(scrubErrorText('cannot read /home/user/app/panel.js'), 'cannot read <path>')
   assert.equal(scrubErrorText('unexpected token in JSON at position 3'), 'unexpected token in JSON at position 3')
@@ -281,23 +317,27 @@ test('buildSnapshot assembles the dashboard document from fixtures', async () =>
   assert.equal(snapshot.error, null)
   assert.equal(snapshot.atClock, '08:50:00')
   assert.equal(snapshot.health.realm, 'cn')
-  assert.equal(snapshot.health.accounts, 7)
-  assert.equal(snapshot.health.accountsReady, 4)
+  // Fixtures are synthesised (scripts/fixtures-sanitize.mjs), so derive every
+  // expected figure from the fixture itself; re-capturing must not break tests.
+  const win = analytics.summary.window
+  assert.equal(snapshot.health.accounts, health.accounts)
+  assert.equal(snapshot.health.accountsReady, health.accounts_ready)
   assert.deepEqual(snapshot.kpis.map((k) => k.id), DEFAULT_CARDS)
   const tokens = snapshot.kpis.find((k) => k.id === 'tokens')
-  assert.equal(tokens.value, '17M')
-  assert.equal(tokens.sub, '16,962,732 tokens')
+  assert.equal(tokens.value, fmtCompact(win.total_tokens))
+  assert.equal(tokens.sub, fmtInt(win.total_tokens) + ' tokens')
   const requests = snapshot.kpis.find((k) => k.id === 'requests')
-  assert.equal(requests.value, '133')
+  assert.equal(requests.value, fmtInt(win.requests))
   // 积分消耗: consumed credits for the window, with the remaining pool as hint.
   const creditUsed = snapshot.kpis.find((k) => k.id === 'credit_used')
+  const remain = accounts.accounts.reduce((sum, a) => sum + (a.credits ? a.credits.remain : 0), 0)
   assert.equal(creditUsed.label, '积分消耗')
-  assert.equal(creditUsed.value, '21.6')
-  assert.equal(creditUsed.sub, '剩 27K')
-  assert.equal(snapshot.window.costText, '¥1.37')
+  assert.equal(creditUsed.value, fmt1(win.credit))
+  assert.equal(creditUsed.sub, '剩 ' + fmtCompact(remain))
+  assert.equal(snapshot.window.costText, fmtMoney(win.cost_cny))
   assert.equal(snapshot.trend.points.length, 2)
-  assert.equal(snapshot.recent.length, 6)
-  assert.equal(snapshot.accounts.length, 6)
+  assert.equal(snapshot.recent.length, Math.min(6, recent.rows.length))
+  assert.equal(snapshot.accounts.length, Math.min(6, accounts.accounts.length))
   assert.equal(snapshot.cards.length, DEFAULT_CARDS.length)
   assert.deepEqual(snapshot.panels, PANEL_IDS)
 })

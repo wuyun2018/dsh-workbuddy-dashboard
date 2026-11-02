@@ -106,7 +106,7 @@ dsh plugin --profile web remove dsh-workbuddy-dashboard
 | `anchor` | `header` | 位置：`header` 锚在会话页顶部横条（默认）/ `bottom-left` 对话窗口左下角 / `bottom-right` 对话窗口右下角 / `float` 自由浮动可拖拽。前三档都只显示卡片条、点开完整面板 |
 | `opacity` | `0.94` | 面板背景不透明度（0.5–1），文字始终不透明 |
 | `prefsPath` | 空 | 偏好文件路径；空 = `%LOCALAPPDATA%\dsh-workbuddy-dashboard\prefs.json`；`:memory:` 不落盘；以 `\` 结尾视为目录 |
-| `trustedHosts` | `[]` | 额外允许访问插件路由的 Host（默认只信任回环地址）。**一旦非空就等于声明「本机网关对局域网开放」**：路由会同时接受非回环对端，启动时也会打一条 warning |
+| `trustedHosts` | `[]` | 额外允许访问插件路由的 Host（默认只信任回环地址）。**一旦非空就等于声明「本机网关对局域网开放」**：只有请求的 Host **命中白名单里的名字**时才接受非回环对端；拿 `Host: 127.0.0.1` 来的局域网请求仍会被拒。启动时会打一条 warning |
 
 ### 面板内设置（⚙）
 
@@ -151,21 +151,21 @@ dsh plugin --profile web remove dsh-workbuddy-dashboard
 | 路由 | 说明 |
 | --- | --- |
 | `GET /workbuddy/api/snapshot?range=&force=` | 面板数据快照（KPI、趋势、最近、账号、排程） |
-| `GET /workbuddy/api/health` | 缓存状态、网关可达性、最近一次错误 |
+| `GET /workbuddy/api/health` | 缓存状态、网关在本机还是远端（不回显 URL）、最近一次错误 |
 | `GET /workbuddy/api/config` | 面板需要的公开配置（不含口令），含偏好与指标/面板目录 |
 | `GET /workbuddy/api/prefs` | 当前用户偏好（`cards` / `panels` / `opacity` / `refreshMs` / `range` / `snap` / `snapDistance` / `anchor`）+ 默认值 + 目录 |
 | `PUT /workbuddy/api/prefs` | 保存偏好（只认白名单键，其余字段忽略；越界数值被夹紧），返回保存后的完整偏好 |
 | `GET /workbuddy/panel.js` | 面板前端 bundle |
 
-**安全边界**：所有路由先过 `lib/guard.js` —— Host 必须是回环地址或在 `trustedHosts` 白名单（`0.0.0.0`/`[::]` 这类通配绑定地址**不算**回环，需要显式加白名单；重复 Host 头 `a, b` 直接拒绝）、`Sec-Fetch-Site: cross-site/same-site` 一律拒绝、带 `Origin` 时要求与 Host 同源、除非配置了 `trustedHosts` 否则 TCP 对端必须是本机地址；任何一项判定不了都按 **拒绝** 处理（fail-closed）。写偏好只接受 `PUT` + `application/json`（跨站表单发不出 PUT，因此 CSRF 面为零），写失败会在响应里带 `stored: false` + `warning` 并记 warning 日志，不再假装成功。错误文本回吐前会抹掉绝对路径。偏好文件是本地 JSON，写入先写临时文件再 `rename`，避免半截文件。
+**安全边界**：所有路由先过 `lib/guard.js` —— Host 必须是回环地址或在 `trustedHosts` 白名单（`0.0.0.0`/`[::]` 这类通配绑定地址**不算**回环，需要显式加白名单；重复 Host 头 `a, b` 直接拒绝）、`Sec-Fetch-Site: cross-site/same-site` 一律拒绝、带 `Origin` 时要求与 Host 同源。**Host 与对端地址必须对得上**：Host 声称是回环时 TCP 对端必须是本机（否则同网段任何机器都能靠 `Host: 127.0.0.1` 读到看板），只有 Host 命中了 `trustedHosts` 里的名字才接受局域网对端；取不到对端地址也算拒绝（fail-closed）。写偏好只接受 `PUT` + `application/json`（跨站表单发不出 PUT，因此 CSRF 面为零），写失败会在响应里带 `stored: false` + `warning` 并记 warning 日志，不再假装成功。错误文本回吐前会抹掉绝对路径（含带空格的 `C:\Program Files (x86)\…` 与 POSIX 路径）。偏好文件是本地 JSON，写入先写临时文件再 `rename`，避免半截文件。
 
 ## 开发
 
 ```powershell
-npm test              # 单元 + 插件契约测试（34 项，无网络）
+npm test              # 单元 + 插件契约测试（36 项，无网络）
 npm run test:live     # 真实网关 smoke（5 项，网关不在线时自动 skip）
 npm run harness       # 本地验证页 http://127.0.0.1:4010/ ，连真实网关
-npm run harness:demo  # 同上，但用脱敏 fixtures，适合截图/演示
+npm run harness:demo  # 同上，但用合成示例数据（tests/fixtures），适合截图/演示
 ```
 
 目录：
@@ -178,8 +178,8 @@ lib/prefs.js      用户偏好：读取/规范化/原子写入
 lib/format.js     数字/耗时/金额格式化（对齐桌面看板口径）
 lib/guard.js      路由安全栅栏
 assets/panel.js   注入到页面的悬浮面板（shadow DOM，无框架；含顶栏锚定、吸附与设置视图）
-tests/*.test.mjs  node:test 用例 + 脱敏 fixtures
-scripts/          抓 fixture / 本地 harness / 截图与交互探针
+tests/*.test.mjs  node:test 用例 + 合成示例数据（由 scripts/fixtures-sanitize.mjs 生成）
+scripts/          抓 fixture（自动合成化）/ 本地 harness / 截图与交互探针
 ```
 
 截图与交互探针（可选，需要本机 Edge）：
@@ -201,12 +201,12 @@ node scripts/screenshot.mjs "http://127.0.0.1:4010/" out.png --size 1440x900 --e
 
 ## 版本记录
 
-- **0.3.3** — 发布前安全加固（交叉审计后的修复）。安全栅栏补上对端校验：`trustedHosts` 为空时直接拒绝非回环 socket，`0.0.0.0` / `[::]` 不再被当成回环，带逗号或空白的重复 Host 一律拒绝，IPv6 展开写法（`[0:0:0:0:0:0:0:1]`、`::ffff:127.0.0.1`）也能正确识别；`?force=1` 加 1 秒节流。错误处理不再外泄本机路径：响应里的异常文本抹成 `<path>` 并截断 200 字符（原文只进 debug 日志）；写偏好只接受 `PUT` + `application/json`（其余 405 / 415），落盘失败时返回 `stored:false` 与 `warning` 且不再把成功状态粘住；注入面板的内联启动脚本转义 `<` 与 U+2028/U+2029，避免 `</script>` 提前截断。`baseUrl` 配成非回环地址时启动即告警（口令会明文出网）。截图脚本改为跨平台浏览器候选路径，不再硬编码 Edge 安装目录；`.gitignore` 补 `review/`、`prefs.json`、`*.tmp-*`。测试 34 项（+3）。
+- **0.3.3** — 发布前安全加固（交叉审计后的修复）。安全栅栏补上对端校验，并让「Host 声称」与「真实对端」对齐：Host 是回环就必须来自回环对端（否则局域网里任何机器都能用 `Host: 127.0.0.1` 读到看板），只有 Host 命中 `trustedHosts` 才接受局域网对端；取不到对端地址一律拒绝。`0.0.0.0` / `[::]` 不再被当成回环，带逗号或空白的重复 Host 一律拒绝，IPv6 展开写法（`[0:0:0:0:0:0:0:1]`、`::ffff:127.0.0.1`）也能正确识别；`?force=1` 加 1 秒节流。错误处理不再外泄本机路径：响应里的异常文本抹成 `<path>`（含带空格的 Windows 路径与 POSIX 路径）并截断 200 字符，原文只进 debug 日志；写偏好只接受 `PUT` + `application/json`（其余 405 / 415），落盘失败时返回 `stored:false` 与 `warning` 且不再把成功状态粘住；注入面板的内联启动脚本转义 `<` 与 U+2028/U+2029，避免 `</script>` 提前截断。`baseUrl` 配成非回环地址时启动即告警（口令会明文出网）。截图脚本改为跨平台浏览器候选路径，不再硬编码 Edge 安装目录；`.gitignore` 补 `review/`、`prefs.json`、`*.tmp-*`。测试 36 项（+5）。
 - **0.3.2** — 位置扩到四档：新增“对话窗口左下角 / 右下角”（`bottom-left` / `bottom-right`），样式与顶栏一致、贴会话列边缘停靠、展开方向朝上；修掉锚定模式下点标题行收不回去的问题——现在点面板里任意非按钮处都能在“卡片条 ↔ 完整面板”之间切换，按钮（刷新 / 区间 / ⚙ / 关闭）不会误收起；锚定模式下设置里的“贴边吸附”整块隐藏并给提示。测试 31 项 + live 5 项。
 - **0.3.1** — 位置改成默认锚在会话页顶部横条（“对话 / 上下文 / 编队”右侧居中）：默认只显示 KPI 卡片条，点卡片展开标题行与底部更新时间、再点卡片收回；新增偏好 `anchor`（`header` / `float`）与设置里的“位置”开关，`float` 保留原来的可拖拽 + 贴边吸附；`header` 模式禁止拖动与吸附，窗口尺寸 / 会话切换后自动重新贴合。测试 31 项。
 - **0.3.0** — 配色改为跟随界面主题：读宿主 `--dsw-alias-*` 令牌（深/浅色、强调色、字体），图表色单独用 `--dsw-alias-link`；新增“积分消耗”卡（`credit_used`，展示区间消耗 + 剩余积分），指标库 19 项，老偏好自动补一次新卡（`applyMigrations`）；测试 36 项（含 live）。
 - **0.2.0** — 贴边吸附（阈值 0–80px、记住贴靠边、resize 重贴、五个一键位置）；面板内 ⚙ 设置视图（KPI/面板勾选、不透明度、刷新间隔、吸附开关与距离、恢复默认）；偏好落盘到 `%LOCALAPPDATA%\dsh-workbuddy-dashboard\prefs.json` 并新增 `GET/PUT /workbuddy/api/prefs`、`prefsPath` 配置；测试 35 项。
-- **0.1.0** — 首个版本：悬浮面板（KPI / 趋势 / 最近 / 账号 / 排程）、18 指标 + 4 面板可配置、3 个 `workbuddy_*` 工具、4 条只读路由 + 安全栅栏、单元/契约/真实网关测试、脱敏 fixtures 与本地 harness。
+- **0.1.0** — 首个版本：悬浮面板（KPI / 趋势 / 最近 / 账号 / 排程）、18 指标 + 4 面板可配置、3 个 `workbuddy_*` 工具、4 条只读路由 + 安全栅栏、单元/契约/真实网关测试、合成示例数据（fixtures）与本地 harness。
 
 ## 许可
 
