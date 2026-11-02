@@ -153,7 +153,7 @@ test('request guard rejects wildcard binds, repeated hosts and remote peers', ()
   // Host and Origin are client controlled, so the TCP peer is checked too.
   const remote = guardRequest({
     headers: { host: '127.0.0.1:3080' },
-    socket: { remoteAddress: '192.168.1.9' },
+    socket: { remoteAddress: '192.0.2.9' },
   })
   assert.equal(remote.ok, false)
   assert.match(remote.reason, /non-loopback peer/)
@@ -170,7 +170,7 @@ test('a LAN peer cannot borrow a loopback host name', () => {
   // Configuring a LAN name must not hand every machine on the network the right
   // to send `Host: 127.0.0.1` and skip the peer check.
   const borrowed = guardRequest(
-    { headers: { host: '127.0.0.1:3080' }, socket: { remoteAddress: '10.0.0.5' } },
+    { headers: { host: '127.0.0.1:3080' }, socket: { remoteAddress: '198.51.100.5' } },
     { trustedHosts: ['lanbox'] },
   )
   assert.equal(borrowed.ok, false)
@@ -179,7 +179,7 @@ test('a LAN peer cannot borrow a loopback host name', () => {
   // The configured name itself stays usable from the LAN.
   assert.equal(
     guardRequest(
-      { headers: { host: 'lanbox:3080' }, socket: { remoteAddress: '10.0.0.5' } },
+      { headers: { host: 'lanbox:3080' }, socket: { remoteAddress: '198.51.100.5' } },
       { trustedHosts: ['lanbox'] },
     ).ok,
     true,
