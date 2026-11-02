@@ -1,7 +1,7 @@
 /**
  * Dev utility: dump the host theme the panel should adopt.
  *
- *   node scripts/screenshot.mjs <dsh-url> <tmp.png> --eval-file scripts/probe-theme.js
+ *   node scripts/screenshot.mjs <dsh-url> <tmp.png> --eval-file dev/probes/probe-theme.js
  *
  * Prints the resolved DSH design tokens (they are defined on <body> and inherit
  * into the panel's shadow root) plus the panel's own `--wb-*` variables and the

@@ -188,7 +188,8 @@ lib/format.js     数字/耗时/金额格式化（对齐桌面看板口径）
 lib/guard.js      路由安全栅栏
 assets/panel.js   注入到页面的悬浮面板（shadow DOM，无框架；含顶栏锚定、吸附与设置视图）
 tests/*.test.mjs  node:test 用例 + 合成示例数据（由 scripts/fixtures-sanitize.mjs 生成）
-scripts/          抓 fixture（自动合成化）/ 本地 harness / 截图与交互探针
+scripts/          抓 fixture（自动合成化）/ 本地 harness / 截图入口
+dev/probes/       交互探针（CDP 注入脚本，只在开发时用）
 ```
 
 截图与交互探针（可选，需要本机 Edge）：
@@ -197,11 +198,11 @@ scripts/          抓 fixture（自动合成化）/ 本地 harness / 截图与�
 # 出图
 node scripts/screenshot.mjs "http://127.0.0.1:3091/?token=…" docs/preview-in-dsh.png --wait 10000 --size 1440x900
 # 交互验证：吸附（12px 间隙应贴边、36px 不应贴边）、设置视图、持久化后的渲染
-node scripts/screenshot.mjs "http://127.0.0.1:3091/?token=…" out.png --size 1280x800 --eval-file scripts/probe-snap.js
-node scripts/screenshot.mjs "http://127.0.0.1:3091/?token=…" out.png --size 1280x800 --eval-file scripts/probe-settings.js
-node scripts/screenshot.mjs "http://127.0.0.1:3091/?token=…" out.png --size 1280x800 --eval-file scripts/probe-state.js
+node scripts/screenshot.mjs "http://127.0.0.1:3091/?token=…" out.png --size 1280x800 --eval-file dev/probes/probe-snap.js
+node scripts/screenshot.mjs "http://127.0.0.1:3091/?token=…" out.png --size 1280x800 --eval-file dev/probes/probe-settings.js
+node scripts/screenshot.mjs "http://127.0.0.1:3091/?token=…" out.png --size 1280x800 --eval-file dev/probes/probe-state.js
 # 顶栏锚定：卡片条在横条内居中、点开展开、再点收回（输出 band / centerDelta / compact / expanded / folded）
-node scripts/screenshot.mjs "http://127.0.0.1:4010/" out.png --size 1440x900 --eval-file scripts/probe-header.js
+node scripts/screenshot.mjs "http://127.0.0.1:4010/" out.png --size 1440x900 --eval-file dev/probes/probe-header.js
 ```
 
 ## 与桌面看板的关系
@@ -210,6 +211,7 @@ node scripts/screenshot.mjs "http://127.0.0.1:4010/" out.png --size 1440x900 --e
 
 ## 版本记录
 
+- **0.3.4** — 收尾两条审计遗留项（R-5/R-6）。交互探针从 `scripts/` 移到 `dev/probes/`（只改目录、不动历史）：`scripts/` 现在只剩 5 个正式入口——假宿主 `harness.mjs`、抓取并合成化的 `capture-fixtures.mjs`、生成校验 fixtures 的 `fixtures-sanitize.mjs`、`screenshot.mjs`、重拍文档图的 `docs-shots.mjs`。`PUT /workbuddy/api/prefs` 的超限请求体现在会**先回 `413` + `{"ok":false,"error":"request body too large"}` 再收起连接**（此前直接 `req.destroy()`，客户端只看到连接被重置、拿不到原因）；读取逻辑同时加了 settled 标记，超限后剩余字节边到边丢，不会为一个注定失败的请求攒下整份 body。测试 36 项（含新增的 413 断言）。
 - **0.3.3** — 发布前安全加固（交叉审计后的修复）。安全栅栏补上对端校验，并让「Host 声称」与「真实对端」对齐：Host 是回环就必须来自回环对端（否则局域网里任何机器都能用 `Host: 127.0.0.1` 读到看板），只有 Host 命中 `trustedHosts` 才接受局域网对端；取不到对端地址一律拒绝。`0.0.0.0` / `[::]` 不再被当成回环，带逗号或空白的重复 Host 一律拒绝，IPv6 展开写法（`[0:0:0:0:0:0:0:1]`、`::ffff:127.0.0.1`）也能正确识别；`?force=1` 加 1 秒节流。错误处理不再外泄本机路径：响应里的异常文本抹成 `<path>`（含带空格的 Windows 路径与 POSIX 路径）并截断 200 字符，原文只进 debug 日志；写偏好只接受 `PUT` + `application/json`（其余 405 / 415），落盘失败时返回 `stored:false` 与 `warning` 且不再把成功状态粘住；注入面板的内联启动脚本转义 `<` 与 U+2028/U+2029，避免 `</script>` 提前截断。`baseUrl` 配成非回环地址时启动即告警（口令会明文出网）。截图脚本改为跨平台浏览器候选路径，不再硬编码 Edge 安装目录；`.gitignore` 补 `review/`、`prefs.json`、`*.tmp-*`。测试 36 项（+5）。日志不再重复插件名前缀，写盘失败只记文件名（避免把本机目录带进贴到 issue 里的日志）。
 - **0.3.2** — 位置扩到四档：新增“对话窗口左下角 / 右下角”（`bottom-left` / `bottom-right`），样式与顶栏一致、贴会话列边缘停靠、展开方向朝上；修掉锚定模式下点标题行收不回去的问题——现在点面板里任意非按钮处都能在“卡片条 ↔ 完整面板”之间切换，按钮（刷新 / 区间 / ⚙ / 关闭）不会误收起；锚定模式下设置里的“贴边吸附”整块隐藏并给提示。测试 31 项 + live 5 项。
 - **0.3.1** — 位置改成默认锚在会话页顶部横条（“对话 / 上下文 / 编队”右侧居中）：默认只显示 KPI 卡片条，点卡片展开标题行与底部更新时间、再点卡片收回；新增偏好 `anchor`（`header` / `float`）与设置里的“位置”开关，`float` 保留原来的可拖拽 + 贴边吸附；`header` 模式禁止拖动与吸附，窗口尺寸 / 会话切换后自动重新贴合。测试 31 项。

@@ -353,6 +353,15 @@ test('prefs route stores the view and rebuilds the snapshot', async () => {
     const unsupported = fakeResponse()
     await routes.get('/workbuddy/api/prefs').handler(plain, unsupported)
     assert.equal(unsupported.statusCode, 415, 'a non-JSON body is refused')
+
+    // An oversized payload used to reset the connection with no answer at all;
+    // it must come back as a readable 413 instead.
+    const huge = bodyRequest('PUT', '/workbuddy/api/prefs', { note: 'x'.repeat(70 * 1024) })
+    const tooLarge = fakeResponse()
+    await routes.get('/workbuddy/api/prefs').handler(huge, tooLarge)
+    assert.equal(tooLarge.statusCode, 413, 'an oversized body is answered, not dropped')
+    assert.equal(tooLarge.json().ok, false)
+    assert.match(tooLarge.json().error, /too large/)
   } finally {
     for (const dispose of disposers) dispose()
     restoreFetch()

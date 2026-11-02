@@ -2,7 +2,7 @@
  * Probe: verify the anchored panel against a real DSH instance.
  *
  *   node scripts/screenshot.mjs "<url with token>" <out.png> --size 1920x1027 \
- *     --eval-file scripts/probe-real-anchor.js
+ *     --eval-file dev/probes/probe-real-anchor.js
  *
  * Reports the conversation header box, the tab labels, and the panel geometry in
  * the resting / expanded / folded states. It opens a conversation first when the

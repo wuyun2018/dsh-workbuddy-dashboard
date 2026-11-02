@@ -1,7 +1,7 @@
 /**
  * Probe: open the in-panel settings view and report the position picker.
  *
- *   node scripts/screenshot.mjs <url> <out.png> --eval-file scripts/probe-anchor-settings.js
+ *   node scripts/screenshot.mjs <url> <out.png> --eval-file dev/probes/probe-anchor-settings.js
  */
 (async () => {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))

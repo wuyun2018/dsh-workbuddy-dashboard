@@ -1,7 +1,7 @@
 /**
  * Probe: exercise the anchored modes with realistic clicks and report geometry.
  *
- *   node scripts/screenshot.mjs <url> <out.png> --eval-file scripts/probe-anchor-state.js
+ *   node scripts/screenshot.mjs <url> <out.png> --eval-file dev/probes/probe-anchor-state.js
  *
  * It measures the resting compact row, expands it by clicking a card, folds it
  * again by clicking the title row (the case users hit first), then folds from a

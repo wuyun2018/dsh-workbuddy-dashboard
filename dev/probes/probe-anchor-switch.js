@@ -2,7 +2,7 @@
  * Probe: switch the anchor position from inside the settings view (the real user
  * path) and record the geometry the panel takes after each switch.
  *
- *   node scripts/screenshot.mjs <url> <out.png> --eval-file scripts/probe-anchor-switch.js
+ *   node scripts/screenshot.mjs <url> <out.png> --eval-file dev/probes/probe-anchor-switch.js
  */
 (async () => {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))

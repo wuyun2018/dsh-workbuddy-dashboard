@@ -124,7 +124,7 @@ try {
       '--wait', '4200',
       '--size', '1440x900',
     ]
-    if (shot.probe) args.push('--eval-file', join(here, shot.probe))
+    if (shot.probe) args.push('--eval-file', join(here, '..', 'dev', 'probes', shot.probe))
     const code = await run(process.execPath, args)
     if (code !== 0) failures += 1
     console.log((code === 0 ? 'ok   ' : 'FAIL ') + shot.file + ' — ' + shot.note)
