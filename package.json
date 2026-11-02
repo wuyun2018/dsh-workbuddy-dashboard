@@ -34,6 +34,15 @@
     "monitoring"
   ],
   "license": "MIT",
+  "author": "WorkBuddy Dashboard Widget Contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wuyun2018/dsh-workbuddy-dashboard.git"
+  },
+  "homepage": "https://github.com/wuyun2018/dsh-workbuddy-dashboard#readme",
+  "bugs": {
+    "url": "https://github.com/wuyun2018/dsh-workbuddy-dashboard/issues"
+  },
   "engines": {
     "node": ">=20"
   },

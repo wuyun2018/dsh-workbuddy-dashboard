@@ -34,6 +34,15 @@
 
 前提：本机已经跑着 WorkBuddy 便携版网关（默认 `http://127.0.0.1:8788`，面板密码 `admin`），并且已装 DeepSeek Harness（`dsh` 命令可用，版本 ≥ `0.2.0-rc.2`）。
 
+### 拿到代码
+
+```powershell
+git clone https://github.com/wuyun2018/dsh-workbuddy-dashboard.git
+cd dsh-workbuddy-dashboard
+```
+
+也可以下载 [Releases](https://github.com/wuyun2018/dsh-workbuddy-dashboard/releases) 里的 zip 解压，效果相同（仓库只含源码、测试与合成示例数据，没有构建步骤）。
+
 ### 方式 A：pnpm link 到现有 profile（推荐）
 
 ```powershell
